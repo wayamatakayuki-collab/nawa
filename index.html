@@ -31,6 +31,12 @@
     :root{
       --safe-bottom: env(safe-area-inset-bottom, 0px);
     }
+    html, body{
+      overflow-x: hidden; /* 横はみ出し対策 */
+    }
+    *{
+      -webkit-tap-highlight-color: transparent; /* iOSのタップ強調（白フラッシュっぽさ）対策 */
+    }
     body{
       font-family: "M PLUS Rounded 1c", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       touch-action: manipulation;
@@ -439,6 +445,7 @@
     function NavButton({label, icon: Icon, active, onClick, badge}) {
       return (
         <button
+          type="button"
           onClick={onClick}
           className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 rounded-2xl transition active:scale-95 ${
             active ? "text-orange-600" : "text-slate-400 hover:text-slate-600"
@@ -461,6 +468,7 @@
         <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="relative w-full max-w-lg animate-popIn">
             <button
+              type="button"
               onClick={()=>{ playClick?.(); onClose?.(); }}
               className="absolute -top-2 -right-2 w-10 h-10 rounded-full bg-white text-slate-500 hover:text-slate-700 shadow flex items-center justify-center"
               aria-label="閉じる"
@@ -510,7 +518,6 @@
         setViewMonth(d.getMonth());
       };
 
-      const isWeekend = (d) => d && (d.getDay() === 0 || d.getDay() === 6);
       const isHoliday = (d) => d && isJapaneseHoliday(d);
 
       return (
@@ -525,6 +532,7 @@
 
             <div className="mt-4 flex items-center justify-between">
               <button
+                type="button"
                 onClick={()=>{ playClick?.(); moveMonth(-1); }}
                 className="w-10 h-10 rounded-2xl bg-slate-100 hover:bg-slate-200 border border-slate-200 flex items-center justify-center active:scale-95"
                 aria-label="前の月"
@@ -533,6 +541,7 @@
               </button>
               <div className="font-black text-slate-700">{monthTitle}</div>
               <button
+                type="button"
                 onClick={()=>{ playClick?.(); moveMonth(1); }}
                 className="w-10 h-10 rounded-2xl bg-slate-100 hover:bg-slate-200 border border-slate-200 flex items-center justify-center active:scale-95"
                 aria-label="次の月"
@@ -558,6 +567,7 @@
 
                 return (
                   <button
+                    type="button"
                     key={idx}
                     onClick={()=>{ playClick?.(); setSelectedKey(k); }}
                     className={`h-10 rounded-2xl border text-sm font-black flex items-center justify-center active:scale-95 transition ${
@@ -577,6 +587,7 @@
 
             <div className="mt-4 flex gap-2">
               <button
+                type="button"
                 onClick={()=>{ playClick?.(); setSelectedKey(todayKeyLocal()); const t=new Date(); setViewYear(t.getFullYear()); setViewMonth(t.getMonth()); }}
                 className="px-3 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 border border-slate-200 font-black text-xs active:scale-95"
               >
@@ -584,12 +595,14 @@
               </button>
               <div className="flex-1"></div>
               <button
+                type="button"
                 onClick={()=>{ playClick?.(); onClose?.(); }}
                 className="px-4 py-3 rounded-2xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-black active:scale-95"
               >
                 キャンセル
               </button>
               <button
+                type="button"
                 onClick={()=>{ playClick?.(); onConfirm?.(selectedKey); }}
                 className="px-4 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black shadow active:scale-95"
               >
@@ -936,8 +949,22 @@
       }, []);
 
       // ---------- Actions ----------
+      // ★修正：入力値を必ず「数字（0以上）」に正規化（文字↔数字でのチラつき・不安定さ対策）
       const updateRecord = (trickId, count) => {
-        setRecords(prev => ({ ...prev, [trickId]: count }));
+        const raw = (typeof count === "number") ? String(count) : String(count ?? "");
+        const digits = normalizeDigits(raw);
+        const n = (digits === "") ? 0 : parseInt(digits, 10);
+        const safe = clamp0(isNaN(n) ? 0 : n);
+        setRecords(prev => ({ ...prev, [trickId]: safe }));
+      };
+
+      // ★修正：矢印の増減は「onPointerDown」で確定（iOSの“リロードっぽいフラッシュ”/フォーカス移動を抑制）
+      const stepRecord = (trickId, delta) => {
+        setRecords(prev => {
+          const cur = Number(prev?.[trickId] || 0);
+          const next = clamp0(cur + delta);
+          return { ...prev, [trickId]: next };
+        });
       };
 
       const handleConfirmRecord = (trickId) => {
@@ -1293,6 +1320,8 @@
   <\/script>
   <style>
     :root{ --safe-bottom: env(safe-area-inset-bottom, 0px); }
+    html, body{ overflow-x:hidden; }
+    *{ -webkit-tap-highlight-color: transparent; }
     body{
       font-family:"M PLUS Rounded 1c",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
       touch-action:manipulation;
@@ -1386,7 +1415,7 @@ ${newScript}
             <header className="sticky top-0 z-40 bg-gradient-to-r from-slate-900 to-slate-700 text-white px-4 py-3 shadow-lg">
               <div className="max-w-5xl mx-auto flex items-center justify-between gap-2 flex-wrap">
                 <div className="flex items-center gap-2">
-                  <button onClick={() => { playClick(); setActiveTab("home"); }} className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 font-black text-sm">
+                  <button type="button" onClick={() => { playClick(); setActiveTab("home"); }} className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 font-black text-sm">
                     ← もどる
                   </button>
                   <div className="flex items-center gap-2">
@@ -1397,16 +1426,16 @@ ${newScript}
 
                 <div className="flex gap-2 items-center">
                   <input type="file" ref={fileInputRef} accept=".json" onChange={handleUploadJson} className="hidden" />
-                  <button onClick={() => { playClick(); fileInputRef.current?.click(); }} className="bg-indigo-600 hover:bg-indigo-500 px-3 py-2 rounded-xl font-black text-xs flex items-center gap-2 shadow">
+                  <button type="button" onClick={() => { playClick(); fileInputRef.current?.click(); }} className="bg-indigo-600 hover:bg-indigo-500 px-3 py-2 rounded-xl font-black text-xs flex items-center gap-2 shadow">
                     <Upload size={16}/> 設定読込
                   </button>
-                  <button onClick={() => { playClick(); handleDownloadJson(); }} className="bg-orange-600 hover:bg-orange-500 px-3 py-2 rounded-xl font-black text-xs flex items-center gap-2 shadow">
+                  <button type="button" onClick={() => { playClick(); handleDownloadJson(); }} className="bg-orange-600 hover:bg-orange-500 px-3 py-2 rounded-xl font-black text-xs flex items-center gap-2 shadow">
                     <Download size={16}/> 設定保存
                   </button>
-                  <button onClick={() => { playClick(); handleExportHtml(); }} className="bg-emerald-600 hover:bg-emerald-500 px-3 py-2 rounded-xl font-black text-xs flex items-center gap-2 shadow">
+                  <button type="button" onClick={() => { playClick(); handleExportHtml(); }} className="bg-emerald-600 hover:bg-emerald-500 px-3 py-2 rounded-xl font-black text-xs flex items-center gap-2 shadow">
                     <FileDown size={16}/> 児童配付用を書き出し
                   </button>
-                  <button onClick={() => { playClick(); handleSaveSettings(); }} className="bg-sky-600 hover:bg-sky-500 px-4 py-2 rounded-xl font-black text-xs flex items-center gap-2 shadow">
+                  <button type="button" onClick={() => { playClick(); handleSaveSettings(); }} className="bg-sky-600 hover:bg-sky-500 px-4 py-2 rounded-xl font-black text-xs flex items-center gap-2 shadow">
                     <Save size={16}/> 保存
                   </button>
                 </div>
@@ -1432,6 +1461,7 @@ ${newScript}
                     {id:"high", label:"5・6年用"}
                   ].map(tab => (
                     <button
+                      type="button"
                       key={tab.id}
                       onClick={() => { playClick(); setSettingTab(tab.id); }}
                       className={`px-4 py-2 rounded-full font-black whitespace-nowrap transition ${
@@ -1498,7 +1528,7 @@ ${newScript}
               </div>
 
               <div className="mt-8 text-center">
-                <button onClick={() => { playClick(); handleResetSettings(); }} className="text-xs font-black text-red-400 hover:text-red-600 underline inline-flex items-center gap-2">
+                <button type="button" onClick={() => { playClick(); handleResetSettings(); }} className="text-xs font-black text-red-400 hover:text-red-600 underline inline-flex items-center gap-2">
                   <RotateCcw size={14}/> 設定を初期値に戻す
                 </button>
               </div>
@@ -1525,6 +1555,7 @@ ${newScript}
 
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={() => { playClick(); setSoundEnabled(v => !v); }}
                 className="px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 font-black text-xs flex items-center gap-2 active:scale-95"
                 title="サウンドON/OFF"
@@ -1553,6 +1584,7 @@ ${newScript}
             <div className="relative bg-gradient-to-r from-sky-50 to-indigo-50 p-4 border-b border-sky-100 text-center">
               {IS_TEACHER_MODE && (
                 <button
+                  type="button"
                   onClick={() => { playClick(); setActiveTab("settings"); }}
                   className="absolute top-3 right-3 px-3 py-2 rounded-xl bg-white/70 hover:bg-white border border-sky-100 text-sky-600 font-black text-xs flex items-center gap-2 shadow-sm active:scale-95"
                 >
@@ -1614,6 +1646,7 @@ ${newScript}
 
               <div className="grid grid-cols-1 gap-3">
                 <button
+                  type="button"
                   onClick={()=>{ playClick(); setTargetDate(todayKeyLocal()); setActiveTab("input"); }}
                   className="group flex items-center gap-3 p-3 rounded-2xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 shadow-sm hover:shadow-md active:scale-95 transition"
                 >
@@ -1627,6 +1660,7 @@ ${newScript}
                 </button>
 
                 <button
+                  type="button"
                   onClick={()=>{ playClick(); setActiveTab("stats"); }}
                   className="group flex items-center gap-3 p-3 rounded-2xl border-2 border-orange-200 bg-orange-50 hover:bg-orange-100 shadow-sm hover:shadow-md active:scale-95 transition"
                 >
@@ -1640,6 +1674,7 @@ ${newScript}
                 </button>
 
                 <button
+                  type="button"
                   onClick={()=>{ playClick(); setActiveTab("cert"); }}
                   className="group flex items-center gap-3 p-3 rounded-2xl border-2 border-pink-200 bg-pink-50 hover:bg-pink-100 shadow-sm hover:shadow-md active:scale-95 transition"
                 >
@@ -1653,6 +1688,7 @@ ${newScript}
                 </button>
 
                 <button
+                  type="button"
                   onClick={()=>{ playClick(); setActiveTab("history"); setHistoryView("calendar"); }}
                   className="group flex items-center gap-3 p-3 rounded-2xl border-2 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 shadow-sm hover:shadow-md active:scale-95 transition"
                 >
@@ -1668,6 +1704,7 @@ ${newScript}
 
               <div className="mt-4 text-center">
                 <button
+                  type="button"
                   onClick={()=>{ playClick(); setDeleteModal({type:"soft"}); }}
                   className="text-[11px] font-black text-slate-300 hover:text-red-400 underline inline-flex items-center gap-2"
                 >
@@ -1676,6 +1713,7 @@ ${newScript}
                 {IS_TEACHER_MODE && (
                   <div className="mt-2">
                     <button
+                      type="button"
                       onClick={()=>{ playClick(); setDeleteModal({type:"hard"}); }}
                       className="text-[11px] font-black text-red-300 hover:text-red-600 underline inline-flex items-center gap-2"
                     >
@@ -1704,7 +1742,7 @@ ${newScript}
       );
 
       // =========================
-      // INPUT（★チカチカ防止：コンポーネントとして使わず関数呼び出し）
+      // INPUT（★修正：矢印増減の“リロードっぽい効果”を抑止 + 小画面の最適化）
       // =========================
       const InputView = () => {
         const today = todayKeyLocal();
@@ -1735,12 +1773,14 @@ ${newScript}
                     <CalendarDays size={16} className="absolute left-3 top-2.5 text-slate-400 pointer-events-none"/>
                   </div>
                   <button
+                    type="button"
                     onClick={()=>{ playClick(); setTargetDate(today); }}
                     className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-xs active:scale-95"
                   >
                     今日
                   </button>
                   <button
+                    type="button"
                     onClick={handleCopyRowToClipboard}
                     className="px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-black text-xs flex items-center gap-2 active:scale-95"
                   >
@@ -1770,74 +1810,94 @@ ${newScript}
 
                   const borderClass = trick.color.split(" ").find(s => s.startsWith("border-")) || "border-slate-200";
 
-                  // ★1行固定（技名が折り返さない）
                   return (
-                    <div key={trick.id} className={`p-3 rounded-2xl border-2 ${borderClass} bg-white hover:border-sky-300 transition`}>
-                      <div className="flex items-center justify-between gap-3 flex-wrap">
-                        <div className="flex items-center gap-3 min-w-[180px] min-w-0">
-                          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center font-black shadow-sm ${trick.color}`}>
+                    <div key={trick.id} className={`p-2.5 sm:p-3 rounded-2xl border-2 ${borderClass} bg-white hover:border-sky-300 transition`}>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        {/* 左：技名など（小画面で縮む） */}
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <div className={`w-9 h-9 sm:w-11 sm:h-11 rounded-2xl flex items-center justify-center font-black shadow-sm ${trick.color}`}>
                             {trick.label.substring(0,1)}
                           </div>
+
                           <div className="min-w-0">
-                            <div className="font-black text-slate-800 flex items-center gap-2 min-w-0">
-                              <span className="truncate whitespace-nowrap max-w-[180px] sm:max-w-[260px]">{trick.label}</span>
-                              <span className="text-xs font-black text-orange-700 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full whitespace-nowrap">
-                                最高: {best}
+                            <div className="font-black text-slate-800 flex items-center gap-1.5 min-w-0">
+                              {/* 技名：1行固定（ただし小画面に収まるようmax幅を小さく） */}
+                              <span
+                                className="truncate whitespace-nowrap max-w-[130px] sm:max-w-[260px]"
+                                title={trick.label}
+                              >
+                                {trick.label}
                               </span>
+
+                              {/* 最高：小画面は短縮表示 */}
+                              <span className="text-[11px] sm:text-xs font-black text-orange-700 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full whitespace-nowrap">
+                                <span className="sm:hidden">★{best}</span>
+                                <span className="hidden sm:inline">最高: {best}</span>
+                              </span>
+
                               {bestLevel && (
-                                <span className="text-xs font-black bg-yellow-100 text-yellow-800 border border-yellow-300 px-2 py-0.5 rounded-full whitespace-nowrap">
+                                <span className="text-[11px] sm:text-xs font-black bg-yellow-100 text-yellow-800 border border-yellow-300 px-2 py-0.5 rounded-full whitespace-nowrap">
                                   {bestLevel}級
                                 </span>
                               )}
                             </div>
-                            <div className="text-[11px] font-bold text-slate-400">
+
+                            <div className="text-[10px] sm:text-[11px] font-bold text-slate-400">
                               今日の記録：{savedExists ? savedNum : "未保存"}
                             </div>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        {/* 右：入力（固定幅。ボタン小さめ） */}
+                        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                           <button
-                            onClick={()=>{
+                            type="button"
+                            onPointerDown={(e)=>{
+                              e.preventDefault();
                               playClick();
-                              const cur = Number(records[trick.id] || 0);
-                              updateRecord(trick.id, clamp0(cur - 1));
+                              stepRecord(trick.id, -1);
                             }}
-                            className="w-11 h-11 rounded-2xl bg-slate-50 border border-slate-200 text-slate-400 flex items-center justify-center active:scale-95 hover:bg-slate-100"
+                            onContextMenu={(e)=>e.preventDefault()}
+                            className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-slate-50 border border-slate-200 text-slate-400 flex items-center justify-center active:scale-95 hover:bg-slate-100"
+                            aria-label="1回へらす"
                           >
-                            <ChevronDown size={22}/>
+                            <ChevronDown size={20}/>
                           </button>
 
                           <div className="flex items-end gap-1">
                             <input
-                              type="number"
+                              type="text"
                               inputMode="numeric"
                               pattern="\d*"
-                              value={Number(records[trick.id] || 0) > 0 ? records[trick.id] : ""}
+                              value={Number(records[trick.id] || 0) > 0 ? String(records[trick.id]) : ""}
                               placeholder="0"
                               onFocus={(e)=> requestAnimationFrame(()=>e.target.select())}
                               onChange={(e)=> updateRecord(trick.id, e.target.value)}
-                              className={`w-20 text-center text-3xl font-black bg-transparent border-b-4 focus:outline-none p-1 select-text ${
+                              className={`w-16 sm:w-20 text-center text-2xl sm:text-3xl font-black bg-transparent border-b-4 focus:outline-none p-1 select-text ${
                                 isSaved ? "text-sky-600 border-sky-200" : "text-slate-900 border-slate-200 focus:border-sky-400"
                               }`}
                             />
-                            <div className="text-xs font-black text-slate-400 mb-2">回</div>
+                            <div className="text-[11px] sm:text-xs font-black text-slate-400 mb-2">回</div>
                           </div>
 
                           <button
-                            onClick={()=>{
+                            type="button"
+                            onPointerDown={(e)=>{
+                              e.preventDefault();
                               playClick();
-                              const cur = Number(records[trick.id] || 0);
-                              updateRecord(trick.id, cur + 1);
+                              stepRecord(trick.id, +1);
                             }}
-                            className="w-11 h-11 rounded-2xl bg-sky-100 border border-sky-200 text-sky-700 flex items-center justify-center active:scale-95 hover:bg-sky-200"
+                            onContextMenu={(e)=>e.preventDefault()}
+                            className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-sky-100 border border-sky-200 text-sky-700 flex items-center justify-center active:scale-95 hover:bg-sky-200"
+                            aria-label="1回ふやす"
                           >
-                            <ChevronUp size={22}/>
+                            <ChevronUp size={20}/>
                           </button>
 
                           <button
+                            type="button"
                             onClick={()=>handleConfirmRecord(trick.id)}
-                            className={`ml-1 w-16 h-11 rounded-2xl font-black text-xs flex flex-col items-center justify-center shadow-sm active:scale-95 transition ${
+                            className={`ml-1 w-14 sm:w-16 h-10 sm:h-11 rounded-2xl font-black text-[11px] sm:text-xs flex flex-col items-center justify-center shadow-sm active:scale-95 transition ${
                               isSaved
                                 ? "bg-sky-50 border-2 border-sky-200 text-sky-700"
                                 : "bg-emerald-500 hover:bg-emerald-600 text-white animate-pulse"
@@ -1875,6 +1935,7 @@ ${newScript}
 
                 <div className="flex gap-2">
                   <button
+                    type="button"
                     onClick={()=>{
                       playClick();
                       // ★開いた瞬間にドラフトへコピー（入力途中で goals を触らない）
@@ -1888,12 +1949,14 @@ ${newScript}
                     <Settings size={16}/> 目標の設定
                   </button>
                   <button
+                    type="button"
                     onClick={()=>{ playClick(); setImportModalOpen(true); }}
                     className="px-4 py-2 rounded-full bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-black text-xs flex items-center gap-2 shadow-sm active:scale-95"
                   >
                     <Upload size={16}/> 復元（貼り付け）
                   </button>
                   <button
+                    type="button"
                     onClick={handleCopyAllRecordsTSV}
                     className="px-4 py-2 rounded-full bg-orange-100 hover:bg-orange-200 border border-orange-200 text-orange-700 font-black text-xs flex items-center gap-2 shadow-sm active:scale-95"
                   >
@@ -2147,6 +2210,7 @@ ${newScript}
 
                 <div className="flex gap-2">
                   <button
+                    type="button"
                     onClick={()=>{ playClick(); setHistoryView("calendar"); }}
                     className={`px-4 py-2 rounded-full font-black text-xs border transition active:scale-95 ${
                       historyView==="calendar" ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
@@ -2155,6 +2219,7 @@ ${newScript}
                     カレンダー
                   </button>
                   <button
+                    type="button"
                     onClick={()=>{ playClick(); setHistoryView("table"); }}
                     className={`px-4 py-2 rounded-full font-black text-xs border transition active:scale-95 ${
                       historyView==="table" ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
@@ -2211,12 +2276,14 @@ ${newScript}
                     </div>
                     <div className="mt-3 flex gap-2 flex-wrap">
                       <button
+                        type="button"
                         onClick={()=>{ playClick(); setActiveTab("input"); }}
                         className="px-4 py-2 rounded-2xl bg-white border border-emerald-200 text-emerald-800 font-black text-xs active:scale-95"
                       >
                         きろく を つける
                       </button>
                       <button
+                        type="button"
                         onClick={()=>{ playClick(); setActiveTab("stats"); }}
                         className="px-4 py-2 rounded-2xl bg-white border border-orange-200 text-orange-700 font-black text-xs active:scale-95"
                       >
@@ -2233,12 +2300,14 @@ ${newScript}
                     </div>
                     <div className="flex gap-2">
                       <button
+                        type="button"
                         onClick={handleCopyAllRecordsTSV}
                         className="px-4 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 font-black text-xs flex items-center gap-2 active:scale-95"
                       >
                         <Copy size={16}/> 全部コピー
                       </button>
                       <button
+                        type="button"
                         onClick={()=>{ playClick(); setImportModalOpen(true); }}
                         className="px-4 py-2 rounded-2xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 font-black text-xs flex items-center gap-2 active:scale-95"
                       >
@@ -2268,8 +2337,8 @@ ${newScript}
                             return (
                               <tr key={dk} className="border-b border-slate-100 hover:bg-slate-50">
                                 <td className="sticky-col p-3 font-black text-slate-700 min-w-[120px]">
-                                  {/* ★日付クリック→カレンダーモーダル */}
                                   <button
+                                    type="button"
                                     onClick={()=>{ playClick(); setDateMoveModal({fromKey: dk}); }}
                                     className="underline decoration-slate-200 hover:decoration-slate-400"
                                     title="日付を変更"
@@ -2285,12 +2354,14 @@ ${newScript}
                                 <td className="p-3 text-center">
                                   <div className="flex gap-2 justify-center flex-wrap">
                                     <button
+                                      type="button"
                                       onClick={()=>{ playClick(); setTargetDate(dk); setActiveTab("input"); }}
                                       className="px-3 py-2 rounded-xl bg-sky-50 hover:bg-sky-100 border border-sky-200 text-sky-700 font-black text-xs active:scale-95"
                                     >
                                       編集
                                     </button>
                                     <button
+                                      type="button"
                                       onClick={()=>{ setDeleteModal({type:"date", dateKey: dk}); }}
                                       className="px-3 py-2 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-black text-xs active:scale-95"
                                     >
@@ -2364,7 +2435,6 @@ ${newScript}
 
                     <div className="flex items-center gap-2">
                       <div className="text-xs font-black text-slate-500">目標</div>
-                      {/* ★type=TEXT + inputMode numeric：入力途中で goals を触らない */}
                       <input
                         type="text"
                         inputMode="numeric"
@@ -2389,12 +2459,14 @@ ${newScript}
 
             <div className="mt-4 flex gap-2">
               <button
+                type="button"
                 onClick={()=>{ playClick(); setGoalModalOpen(false); }}
                 className="flex-1 py-3 rounded-2xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-black"
               >
                 閉じる
               </button>
               <button
+                type="button"
                 onClick={()=>{
                   playSuccess();
                   const next = {...goals};
@@ -2442,12 +2514,14 @@ ${newScript}
 
                 <div className="mt-4 flex gap-3">
                   <button
+                    type="button"
                     onClick={()=>{ playClick(); setGoalUpdateModal(null); }}
                     className="flex-1 py-3 rounded-2xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-black"
                   >
                     いいえ
                   </button>
                   <button
+                    type="button"
                     onClick={()=>{
                       playSuccess();
                       setGoals(prev => ({...prev, [data.trickId]: data.newGoal}));
@@ -2481,12 +2555,14 @@ ${newScript}
 
             <div className="mt-4 flex gap-2">
               <button
+                type="button"
                 onClick={()=>{ playClick(); setImportModalOpen(false); }}
                 className="flex-1 py-3 rounded-2xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-black"
               >
                 キャンセル
               </button>
               <button
+                type="button"
                 onClick={()=>{ playClick(); executeImportTSV(); }}
                 className="flex-1 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black shadow"
               >
@@ -2530,12 +2606,14 @@ ${newScript}
 
               <div className="mt-5 flex gap-3">
                 <button
+                  type="button"
                   onClick={()=>{ playClick(); setDeleteModal(null); }}
                   className="flex-1 py-3 rounded-2xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-black"
                 >
                   キャンセル
                 </button>
                 <button
+                  type="button"
                   onClick={()=>{ playClick(); yes(); }}
                   className={`flex-1 py-3 rounded-2xl text-white font-black shadow ${
                     type==="hard" || type==="date" ? "bg-red-500 hover:bg-red-600" : "bg-orange-500 hover:bg-orange-600"
@@ -2610,13 +2688,11 @@ ${newScript}
             </div>
           )}
 
-          {/* Modals（関数呼び出しで描画） */}
           {GoalModal()}
           {GoalUpdateModal()}
           {ImportModal()}
           {DeleteModal()}
 
-          {/* 日付移動カレンダー */}
           <CalendarMoveModal
             open={!!dateMoveModal}
             fromKey={dateMoveModal?.fromKey}
