@@ -107,7 +107,8 @@
     import {
       Activity, Award, Calendar, CalendarDays, Check, CheckCircle, ChevronDown, ChevronUp,
       Copy, Download, FileDown, Flame, Home, List, Medal, Pencil, RefreshCw,
-      RotateCcw, Save, Settings, Sparkles, Star, Target, Trophy, Upload, User, Volume2, VolumeX, X, Trash2
+      RotateCcw, Save, Settings, Sparkles, Star, Target, Trophy, Upload, User, Volume2, VolumeX, X, Trash2,
+      ChevronLeft, ChevronRight
     } from "lucide-react";
 
     // =========================
@@ -254,12 +255,19 @@
       return toLocalKey(new Date());
     }
     function utcKey(d){
-      // 互換用：旧ロジック(toISOString)のキー
       return d.toISOString().split("T")[0];
     }
-    function dateFromKeyLocal(key){
-      const [y,m,d] = String(key).split("-").map(Number);
-      return new Date(y, (m||1)-1, d||1);
+    function dateFromKey(key){
+      const [y,m,d] = (key||"").split("-").map(n=>parseInt(n,10));
+      if(!y||!m||!d) return new Date();
+      return new Date(y, m-1, d);
+    }
+
+    // 全角数字→半角
+    function normalizeDigits(str){
+      return String(str ?? "")
+        .replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+        .replace(/[^\d]/g, "");
     }
 
     // =========================
@@ -269,7 +277,7 @@
       const y = date.getFullYear();
       const m = date.getMonth() + 1;
       const d = date.getDate();
-      const w = date.getDay(); // 0=Sun, 1=Mon
+      const w = date.getDay();
 
       if (m === 1 && d === 1) return true;
       if (m === 2 && d === 11) return true;
@@ -399,7 +407,6 @@
             ctx.restore();
           });
 
-          // particle remove
           particlesRef.current = particlesRef.current.filter(p => p.y < H + 40);
 
           if (elapsed > 2200 || particlesRef.current.length === 0){
@@ -427,19 +434,191 @@
     }
 
     // =========================
+    // Stable UI components（※チカチカ防止のため App外へ）
+    // =========================
+    function NavButton({label, icon: Icon, active, onClick, badge}) {
+      return (
+        <button
+          onClick={onClick}
+          className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 rounded-2xl transition active:scale-95 ${
+            active ? "text-orange-600" : "text-slate-400 hover:text-slate-600"
+          }`}
+        >
+          <div className={`w-12 h-9 rounded-full flex items-center justify-center transition-all ${
+            active ? "bg-orange-100 -translate-y-0.5" : "bg-slate-100"
+          }`}>
+            <Icon size={22} />
+          </div>
+          <div className="text-[11px] font-extrabold leading-none">{label}</div>
+          {badge ? <div className="text-[10px] font-black text-orange-500">{badge}</div> : null}
+        </button>
+      );
+    }
+
+    function ModalShell({open, onClose, playClick, children}) {
+      if (!open) return null;
+      return (
+        <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="relative w-full max-w-lg animate-popIn">
+            <button
+              onClick={()=>{ playClick?.(); onClose?.(); }}
+              className="absolute -top-2 -right-2 w-10 h-10 rounded-full bg-white text-slate-500 hover:text-slate-700 shadow flex items-center justify-center"
+              aria-label="閉じる"
+            >
+              <X/>
+            </button>
+            {children}
+          </div>
+        </div>
+      );
+    }
+
+    function CalendarMoveModal({open, fromKey, initialKey, onClose, onConfirm, playClick}) {
+      const [viewYear, setViewYear] = useState(new Date().getFullYear());
+      const [viewMonth, setViewMonth] = useState(new Date().getMonth());
+      const [selectedKey, setSelectedKey] = useState(todayKeyLocal());
+
+      useEffect(() => {
+        if (!open) return;
+        const baseKey = initialKey || todayKeyLocal();
+        const d = dateFromKey(baseKey);
+        setViewYear(d.getFullYear());
+        setViewMonth(d.getMonth());
+        setSelectedKey(baseKey);
+      }, [open, initialKey]);
+
+      const monthTitle = `${viewYear}年 ${viewMonth+1}月`;
+
+      const grid = useMemo(() => {
+        const first = new Date(viewYear, viewMonth, 1);
+        const last = new Date(viewYear, viewMonth+1, 0);
+        const startDow = first.getDay(); // 0..6
+        const daysInMonth = last.getDate();
+        const cells = [];
+
+        for (let i=0;i<startDow;i++) cells.push(null);
+        for (let day=1; day<=daysInMonth; day++){
+          cells.push(new Date(viewYear, viewMonth, day));
+        }
+        while(cells.length % 7 !== 0) cells.push(null);
+        return cells;
+      }, [viewYear, viewMonth]);
+
+      const moveMonth = (delta) => {
+        const d = new Date(viewYear, viewMonth + delta, 1);
+        setViewYear(d.getFullYear());
+        setViewMonth(d.getMonth());
+      };
+
+      const isWeekend = (d) => d && (d.getDay() === 0 || d.getDay() === 6);
+      const isHoliday = (d) => d && isJapaneseHoliday(d);
+
+      return (
+        <ModalShell open={open} onClose={onClose} playClick={playClick}>
+          <div className="bg-white rounded-3xl p-6 border-4 border-emerald-200 shadow-2xl">
+            <div className="text-center">
+              <div className="text-lg font-black text-emerald-700">📅 日付を変更</div>
+              <div className="text-xs font-bold text-slate-500 mt-1">
+                {fromKey ? <>対象：<span className="font-black text-slate-700">{fromKey}</span></> : null}
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center justify-between">
+              <button
+                onClick={()=>{ playClick?.(); moveMonth(-1); }}
+                className="w-10 h-10 rounded-2xl bg-slate-100 hover:bg-slate-200 border border-slate-200 flex items-center justify-center active:scale-95"
+                aria-label="前の月"
+              >
+                <ChevronLeft/>
+              </button>
+              <div className="font-black text-slate-700">{monthTitle}</div>
+              <button
+                onClick={()=>{ playClick?.(); moveMonth(1); }}
+                className="w-10 h-10 rounded-2xl bg-slate-100 hover:bg-slate-200 border border-slate-200 flex items-center justify-center active:scale-95"
+                aria-label="次の月"
+              >
+                <ChevronRight/>
+              </button>
+            </div>
+
+            <div className="mt-3 grid grid-cols-7 gap-2 text-center text-xs font-black">
+              {["日","月","火","水","木","金","土"].map((w,i)=>(
+                <div key={w} className={`${i===0?"text-red-500":i===6?"text-blue-500":"text-slate-400"}`}>{w}</div>
+              ))}
+            </div>
+
+            <div className="mt-2 grid grid-cols-7 gap-2">
+              {grid.map((d, idx) => {
+                if(!d) return <div key={idx} className="h-10"></div>;
+                const k = toLocalKey(d);
+                const isSel = (k === selectedKey);
+                const isToday = (k === todayKeyLocal());
+                const red = isHoliday(d) || d.getDay()===0;
+                const blue = d.getDay()===6;
+
+                return (
+                  <button
+                    key={idx}
+                    onClick={()=>{ playClick?.(); setSelectedKey(k); }}
+                    className={`h-10 rounded-2xl border text-sm font-black flex items-center justify-center active:scale-95 transition ${
+                      isSel
+                        ? "bg-emerald-500 text-white border-emerald-500 shadow"
+                        : "bg-white border-slate-200 hover:bg-slate-50"
+                    } ${isToday && !isSel ? "ring-2 ring-offset-1 ring-sky-300" : ""}`}
+                    title={k}
+                  >
+                    <span className={`${!isSel ? (red ? "text-red-500" : blue ? "text-blue-500" : "text-slate-700") : ""}`}>
+                      {d.getDate()}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={()=>{ playClick?.(); setSelectedKey(todayKeyLocal()); const t=new Date(); setViewYear(t.getFullYear()); setViewMonth(t.getMonth()); }}
+                className="px-3 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 border border-slate-200 font-black text-xs active:scale-95"
+              >
+                今日へ
+              </button>
+              <div className="flex-1"></div>
+              <button
+                onClick={()=>{ playClick?.(); onClose?.(); }}
+                className="px-4 py-3 rounded-2xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-black active:scale-95"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={()=>{ playClick?.(); onConfirm?.(selectedKey); }}
+                className="px-4 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black shadow active:scale-95"
+              >
+                変更
+              </button>
+            </div>
+
+            <div className="mt-3 text-center text-[11px] font-bold text-slate-400">
+              選択：<span className="text-slate-700 font-black">{selectedKey}</span>
+            </div>
+          </div>
+        </ModalShell>
+      );
+    }
+
+    // =========================
     // Main App
     // =========================
     function App(){
       // ---------- Core states ----------
       const [user, setUser] = useState({ grade: 1, classVal: "", number: "", name: "", isRegistered: true });
 
-      const [records, setRecords] = useState({});             // 入力中（targetDateの分）
-      const [dailyRecords, setDailyRecords] = useState({});   // 日ごと
-      const [maxRecords, setMaxRecords] = useState({});       // 自己ベスト
-      const [history, setHistory] = useState({});             // やった日
+      const [records, setRecords] = useState({});
+      const [dailyRecords, setDailyRecords] = useState({});
+      const [maxRecords, setMaxRecords] = useState({});
+      const [history, setHistory] = useState({});
 
-      const [activeTab, setActiveTab] = useState("home");     // home, input, stats, cert, history, settings
-      const [historyView, setHistoryView] = useState("calendar"); // calendar | table
+      const [activeTab, setActiveTab] = useState("home");
+      const [historyView, setHistoryView] = useState("calendar");
 
       const [targetDate, setTargetDate] = useState(todayKeyLocal());
 
@@ -448,20 +627,20 @@
       const [trickNames, setTrickNames] = useState(DEFAULT_TRICK_NAMES);
       const [settingTab, setSettingTab] = useState("low");
 
-      // old-features: goals + achievements + import/export modal
+      // goals + achievements + import/export modal
       const [goals, setGoals] = useState({});
-      const [goalDraft, setGoalDraft] = useState({}); // ★ 目標編集中のdraft（入力中に確定しない）
-      const [goalAchievements, setGoalAchievements] = useState([]); // keys: `${trickId}-${goalValue}`
+      const [goalDraft, setGoalDraft] = useState({}); // ★入力途中をここに保持（チカチカ/勝手に達成を防止）
+      const [goalAchievements, setGoalAchievements] = useState([]);
       const [goalModalOpen, setGoalModalOpen] = useState(false);
-      const [goalUpdateModal, setGoalUpdateModal] = useState(null); // {trickId, oldGoal, newGoal}
+      const [goalUpdateModal, setGoalUpdateModal] = useState(null);
       const [importModalOpen, setImportModalOpen] = useState(false);
       const [importText, setImportText] = useState("");
-      const [deleteModal, setDeleteModal] = useState(null); // {type:'date'|'all', dateKey?}
-
-      // ★ 一覧の日付変更（カレンダーモーダル）
-      const [dateMoveModal, setDateMoveModal] = useState(null); // {fromKey, viewY, viewM, selectedKey}
+      const [deleteModal, setDeleteModal] = useState(null);
 
       const [copyToast, setCopyToast] = useState(false);
+
+      // calendar move modal (history table)
+      const [dateMoveModal, setDateMoveModal] = useState(null); // {fromKey}
 
       // sound toggle
       const [soundEnabled, setSoundEnabled] = useState(true);
@@ -514,7 +693,6 @@
           try{ setHistory(JSON.parse(savedHistory)); }catch(e){}
         }
 
-        // maxRecords（旧互換）
         if (savedMax){
           try{ setMaxRecords(JSON.parse(savedMax)); }catch(e){}
         } else {
@@ -528,7 +706,6 @@
           }
         }
 
-        // settings version
         const isOldVersion = savedVersion !== DATA_VERSION;
         if (isOldVersion){
           setLevelsData(DEFAULT_LEVELS_DATA);
@@ -557,7 +734,6 @@
           setSoundEnabled(true);
         }
 
-        // 今日キーのUTC→ローカル移行（今日分だけ安全に）
         const todayLocal = todayKeyLocal();
         const todayUTC = utcKey(new Date());
         if (initialDaily && initialDaily[todayUTC] && !initialDaily[todayLocal]){
@@ -566,7 +742,6 @@
           setDailyRecords(migrated);
           localStorage.setItem(LS.daily, JSON.stringify(migrated));
 
-          // historyも移行
           const h = savedHistory ? (JSON.parse(savedHistory) || {}) : {};
           if (h[todayUTC] && !h[todayLocal]){
             const mh = {...h, [todayLocal]: true};
@@ -576,7 +751,6 @@
           }
         }
 
-        // 初期表示のrecords
         const initKey = todayKeyLocal();
         setTargetDate(initKey);
       }, []);
@@ -685,7 +859,6 @@
         return Math.min(...passed.map(l => l.level));
       }, [maxRecords, levelsData, gradeCategory]);
 
-      // 合計
       const totalsByTrick = useMemo(() => {
         const totals = {};
         displayTricks.forEach(t => totals[t.id] = 0);
@@ -720,31 +893,15 @@
         });
       }, [displayTricks, user.grade]);
 
-      // =========================
-      // ★達成判定：合計が「増えた瞬間」にのみ発火（目標変更では発火しない）
-      // =========================
-      const goalsRef = useRef(goals);
-      useEffect(() => { goalsRef.current = goals; }, [goals]);
-
-      const prevTotalsRef = useRef(null);
+      // 目標達成 → 次の目標提案（※ goals を保存した時だけ動く＝入力途中では動かない）
       useEffect(() => {
         if (!displayTricks.length) return;
-
-        // 初回は比較用にセットして終了（ロード直後に誤発火しない）
-        if (prevTotalsRef.current === null){
-          prevTotalsRef.current = {...totalsByTrick};
-          return;
-        }
-
         displayTricks.forEach(t => {
-          const g = Number(goalsRef.current[t.id] || 0);
+          const g = Number(goals[t.id] || 0);
+          const total = Number(totalsByTrick[t.id] || 0);
           if (!g || g <= 0) return;
 
-          const total = Number(totalsByTrick[t.id] || 0);
-          const prevTotal = Number((prevTotalsRef.current && prevTotalsRef.current[t.id]) || 0);
-
-          // 目標を「下から上へ」跨いだ時だけ
-          if (prevTotal < g && total >= g){
+          if (total >= g){
             const key = `${t.id}-${g}`;
             if (!goalAchievements.includes(key)){
               setGoalAchievements(prev => [...prev, key]);
@@ -756,14 +913,11 @@
             }
           }
         });
-
-        prevTotalsRef.current = {...totalsByTrick};
-      }, [totalsByTrick, displayTricks, goalAchievements, soundEnabled, confetti]);
+      }, [totalsByTrick, goals, displayTricks, goalAchievements, soundEnabled, confetti]);
 
       // ---------- Helpers ----------
       const playClick = () => { if (soundEnabled) soundRef.current?.click(); };
       const playSuccess = () => { if (soundEnabled) soundRef.current?.success(); };
-
       const clamp0 = (n) => Math.max(0, n);
 
       const recomputeMaxFromDaily = useCallback((nextDaily) => {
@@ -781,26 +935,9 @@
         localStorage.setItem(LS.max, JSON.stringify(nextMax));
       }, []);
 
-      // ★入力値の安定化（矢印クリック時のチカチカ軽減）
-      const sanitizeNonNegIntString = (value) => {
-        const s = (value ?? "").toString();
-        if (s === "") return "";
-        const digits = s.replace(/[^\d]/g, "");
-        if (digits === "") return "";
-        const n = Math.max(0, parseInt(digits, 10));
-        return Number.isFinite(n) ? String(n) : "";
-      };
-
       // ---------- Actions ----------
-      const updateRecord = (trickId, countLike) => {
-        const cur = Number(records[trickId] || 0);
-        // 矢印など数値指定の場合は最終値に寄せる
-        const nextStr = (typeof countLike === "number")
-          ? String(clamp0(Math.trunc(countLike)))
-          : sanitizeNonNegIntString(countLike);
-        // 0は空欄にしたい（見た目）
-        const final = (nextStr === "0") ? "" : nextStr;
-        setRecords(prev => ({ ...prev, [trickId]: final }));
+      const updateRecord = (trickId, count) => {
+        setRecords(prev => ({ ...prev, [trickId]: count }));
       };
 
       const handleConfirmRecord = (trickId) => {
@@ -812,19 +949,16 @@
         const category = gradeCategory;
         const oldBest = calculateBestLevel(maxRecords, category);
 
-        // daily
         const nextDaily = { ...dailyRecords };
         if (!nextDaily[targetDate]) nextDaily[targetDate] = {};
         nextDaily[targetDate] = { ...nextDaily[targetDate], [trickId]: currentCount };
         setDailyRecords(nextDaily);
         localStorage.setItem(LS.daily, JSON.stringify(nextDaily));
 
-        // history（日付に1つでも記録が入ったら true）
         const nextHistory = { ...history, [targetDate]: true };
         setHistory(nextHistory);
         localStorage.setItem(LS.hist, JSON.stringify(nextHistory));
 
-        // max
         let nextMax = { ...maxRecords };
         let isNew = false;
         if (currentCount > currentMax){
@@ -834,7 +968,6 @@
           isNew = true;
         }
 
-        // level up?
         const newBest = calculateBestLevel(nextMax, category);
         if (newBest < oldBest){
           playSuccess();
@@ -846,7 +979,6 @@
         }
       };
 
-      // コピー
       const copyTSV = (tsv) => {
         const ta = document.createElement("textarea");
         ta.value = tsv;
@@ -1004,51 +1136,54 @@
         }
       };
 
-      // ★一覧：日付変更（キー移動）
+      // ★日付移動（一覧→カレンダーで日付変更）
       const moveDateKey = (fromKey, toKey) => {
-        const from = String(fromKey || "").trim();
-        const to = String(toKey || "").trim();
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)){
-          alert("日付形式が正しくありません。");
-          return;
-        }
-        if (from === to){
-          setDateMoveModal(null);
-          return;
-        }
-        if (!dailyRecords[from]){
-          alert("移動元の日付の記録が見つかりません。");
-          setDateMoveModal(null);
-          return;
-        }
+        if (!fromKey || !toKey) return;
+        if (fromKey === toKey) return;
 
-        const exists = !!dailyRecords[to];
-        if (exists){
-          const ok = window.confirm(`${to} には既に記録があります。\n上書きして日付を変更しますか？（元の ${to} の記録は消えます）`);
-          if (!ok) return;
-        }
+        const src = dailyRecords[fromKey];
+        if (!src) return;
 
         const nextDaily = {...dailyRecords};
-        nextDaily[to] = {...(nextDaily[from] || {})};
-        delete nextDaily[from];
-        setDailyRecords(nextDaily);
-        localStorage.setItem(LS.daily, JSON.stringify(nextDaily));
-
         const nextHistory = {...history};
-        delete nextHistory[from];
-        nextHistory[to] = true;
+
+        let nextRec = {...src};
+
+        if (nextDaily[toKey]){
+          const merge = window.confirm(
+            "変更先の日付にも記録があります。\n\nOK：合体（足し算）\nキャンセル：上書き"
+          );
+          if (merge){
+            const dst = nextDaily[toKey] || {};
+            const merged = {...dst};
+            TRICK_IDS.forEach(id => {
+              const a = Number(dst[id] || 0);
+              const b = Number(src[id] || 0);
+              const s = (isNaN(a)?0:a) + (isNaN(b)?0:b);
+              if (s) merged[id] = s;
+            });
+            nextRec = merged;
+          } else {
+            nextRec = {...src};
+          }
+        }
+
+        nextDaily[toKey] = nextRec;
+        delete nextDaily[fromKey];
+
+        nextHistory[toKey] = true;
+        delete nextHistory[fromKey];
+
+        setDailyRecords(nextDaily);
         setHistory(nextHistory);
+        localStorage.setItem(LS.daily, JSON.stringify(nextDaily));
         localStorage.setItem(LS.hist, JSON.stringify(nextHistory));
 
-        // targetDate が元なら追従
-        if (targetDate === from) setTargetDate(to);
+        if (targetDate === fromKey) setTargetDate(toKey);
 
         recomputeMaxFromDaily(nextDaily);
-        setDateMoveModal(null);
-        playSuccess();
       };
 
-      // 全消去（先生モードも想定して2段階）
       const hardResetAll = () => {
         const ok = window.confirm("【最終確認】すべてのデータ（名前・記録・目標・設定）を消します。よろしいですか？");
         if (!ok) return;
@@ -1073,7 +1208,7 @@
         setActiveTab("home");
       };
 
-      // ---------- Teacher settings handlers（現コードの機能保持） ----------
+      // ---------- Teacher settings handlers ----------
       const handleSaveSettings = () => {
         localStorage.setItem(LS.levels, JSON.stringify(levelsData));
         localStorage.setItem(LS.names, JSON.stringify(trickNames));
@@ -1242,24 +1377,6 @@ ${newScript}
         location.reload();
       };
 
-      // ---------- UI helpers ----------
-      const NavButton = ({id, label, icon: Icon, active, onClick, badge}) => (
-        <button
-          onClick={onClick}
-          className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 rounded-2xl transition active:scale-95 ${
-            active ? "text-orange-600" : "text-slate-400 hover:text-slate-600"
-          }`}
-        >
-          <div className={`w-12 h-9 rounded-full flex items-center justify-center transition-all ${
-            active ? "bg-orange-100 -translate-y-0.5" : "bg-slate-100"
-          }`}>
-            <Icon size={22} />
-          </div>
-          <div className="text-[11px] font-extrabold leading-none">{label}</div>
-          {badge ? <div className="text-[10px] font-black text-orange-500">{badge}</div> : null}
-        </button>
-      );
-      
       // =========================
       // 先生用：検定表作成画面
       // =========================
@@ -1391,7 +1508,7 @@ ${newScript}
       }
 
       // =========================
-      // UI: 共通ヘッダー（先生ボタン＋音）
+      // UI: 共通ヘッダー（★チカチカ防止：コンポーネントとして使わず関数呼び出し）
       // =========================
       const Header = () => (
         <header className="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-sky-100 shadow-sm">
@@ -1587,14 +1704,11 @@ ${newScript}
       );
 
       // =========================
-      // INPUT（★チカチカ対策 + 1行化）
+      // INPUT（★チカチカ防止：コンポーネントとして使わず関数呼び出し）
       // =========================
       const InputView = () => {
         const today = todayKeyLocal();
         const hasAny = Object.keys(records || {}).some(k => Number(records[k]||0) > 0);
-        const showHint = (targetDate !== today || hasAny);
-
-        const noFocus = (e) => { e.preventDefault(); };
 
         return (
           <div className="space-y-4 animate-fadeInUp">
@@ -1635,17 +1749,15 @@ ${newScript}
                 </div>
               </div>
 
-              {/* ★高さ固定で出し入れしない（チカチカ軽減） */}
-              <div className={`mt-3 min-h-[40px] flex items-center justify-center transition ${showHint ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
-                <div className="w-full bg-orange-50 border border-orange-200 text-orange-600 font-black text-xs text-center py-2 rounded-xl">
+              {(targetDate !== today || hasAny) && (
+                <div className="mt-3 bg-orange-50 border border-orange-200 text-orange-600 font-black text-xs text-center py-2 rounded-xl">
                   数字をかえたら「けってい」をおしてね
                 </div>
-              </div>
+              )}
 
               <div className="mt-4 space-y-3">
                 {displayTricks.map(trick => {
-                  const currentVal = records[trick.id];
-                  const currentNum = Number(currentVal || 0);
+                  const currentNum = Number(records[trick.id] || 0);
 
                   const savedVal = dailyRecords[targetDate]?.[trick.id];
                   const savedExists = savedVal !== undefined && savedVal !== null && savedVal !== "";
@@ -1658,37 +1770,39 @@ ${newScript}
 
                   const borderClass = trick.color.split(" ").find(s => s.startsWith("border-")) || "border-slate-200";
 
+                  // ★1行固定（技名が折り返さない）
                   return (
                     <div key={trick.id} className={`p-3 rounded-2xl border-2 ${borderClass} bg-white hover:border-sky-300 transition`}>
-                      {/* ★1行固定：折り返さず、必要なら横スクロール */}
-                      <div className="flex items-center justify-between gap-3 flex-nowrap overflow-x-auto custom-scrollbar">
-                        <div className="flex items-center gap-3 min-w-max">
+                      <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <div className="flex items-center gap-3 min-w-[180px] min-w-0">
                           <div className={`w-11 h-11 rounded-2xl flex items-center justify-center font-black shadow-sm ${trick.color}`}>
                             {trick.label.substring(0,1)}
                           </div>
                           <div className="min-w-0">
-                            {/* ★ここを折り返さない（1行） */}
-                            <div className="font-black text-slate-800 flex items-center gap-2 whitespace-nowrap overflow-x-auto custom-scrollbar">
-                              <span className="shrink-0">{trick.label}</span>
-                              <span className="text-xs font-black text-orange-700 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full shrink-0">
+                            <div className="font-black text-slate-800 flex items-center gap-2 min-w-0">
+                              <span className="truncate whitespace-nowrap max-w-[180px] sm:max-w-[260px]">{trick.label}</span>
+                              <span className="text-xs font-black text-orange-700 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full whitespace-nowrap">
                                 最高: {best}
                               </span>
                               {bestLevel && (
-                                <span className="text-xs font-black bg-yellow-100 text-yellow-800 border border-yellow-300 px-2 py-0.5 rounded-full shrink-0">
+                                <span className="text-xs font-black bg-yellow-100 text-yellow-800 border border-yellow-300 px-2 py-0.5 rounded-full whitespace-nowrap">
                                   {bestLevel}級
                                 </span>
                               )}
                             </div>
-                            <div className="text-[11px] font-bold text-slate-400 whitespace-nowrap">
+                            <div className="text-[11px] font-bold text-slate-400">
                               今日の記録：{savedExists ? savedNum : "未保存"}
                             </div>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 min-w-max">
+                        <div className="flex items-center gap-2">
                           <button
-                            onMouseDown={noFocus}
-                            onClick={()=>{ playClick(); updateRecord(trick.id, Number(records[trick.id] || 0) - 1); }}
+                            onClick={()=>{
+                              playClick();
+                              const cur = Number(records[trick.id] || 0);
+                              updateRecord(trick.id, clamp0(cur - 1));
+                            }}
                             className="w-11 h-11 rounded-2xl bg-slate-50 border border-slate-200 text-slate-400 flex items-center justify-center active:scale-95 hover:bg-slate-100"
                           >
                             <ChevronDown size={22}/>
@@ -1696,10 +1810,10 @@ ${newScript}
 
                           <div className="flex items-end gap-1">
                             <input
-                              type="text"
+                              type="number"
                               inputMode="numeric"
                               pattern="\d*"
-                              value={records[trick.id] ?? ""}
+                              value={Number(records[trick.id] || 0) > 0 ? records[trick.id] : ""}
                               placeholder="0"
                               onFocus={(e)=> requestAnimationFrame(()=>e.target.select())}
                               onChange={(e)=> updateRecord(trick.id, e.target.value)}
@@ -1711,15 +1825,17 @@ ${newScript}
                           </div>
 
                           <button
-                            onMouseDown={noFocus}
-                            onClick={()=>{ playClick(); updateRecord(trick.id, Number(records[trick.id] || 0) + 1); }}
+                            onClick={()=>{
+                              playClick();
+                              const cur = Number(records[trick.id] || 0);
+                              updateRecord(trick.id, cur + 1);
+                            }}
                             className="w-11 h-11 rounded-2xl bg-sky-100 border border-sky-200 text-sky-700 flex items-center justify-center active:scale-95 hover:bg-sky-200"
                           >
                             <ChevronUp size={22}/>
                           </button>
 
                           <button
-                            onMouseDown={noFocus}
                             onClick={()=>handleConfirmRecord(trick.id)}
                             className={`ml-1 w-16 h-11 rounded-2xl font-black text-xs flex flex-col items-center justify-center shadow-sm active:scale-95 transition ${
                               isSaved
@@ -1741,7 +1857,7 @@ ${newScript}
       };
 
       // =========================
-      // STATS
+      // STATS（目標入力：ドラフト→保存時反映）
       // =========================
       const StatsView = () => {
         return (
@@ -1759,7 +1875,14 @@ ${newScript}
 
                 <div className="flex gap-2">
                   <button
-                    onClick={()=>{ playClick(); setGoalModalOpen(true); }}
+                    onClick={()=>{
+                      playClick();
+                      // ★開いた瞬間にドラフトへコピー（入力途中で goals を触らない）
+                      const draft = {};
+                      displayTricks.forEach(t => { draft[t.id] = String(goals[t.id] ?? ""); });
+                      setGoalDraft(draft);
+                      setGoalModalOpen(true);
+                    }}
                     className="px-4 py-2 rounded-full bg-sky-100 hover:bg-sky-200 border border-sky-200 text-sky-700 font-black text-xs flex items-center gap-2 shadow-sm active:scale-95"
                   >
                     <Settings size={16}/> 目標の設定
@@ -1799,12 +1922,12 @@ ${newScript}
                   return (
                     <div key={t.id} className="bg-white rounded-2xl border border-slate-200 p-3 shadow-sm">
                       <div className="flex items-center justify-between gap-3 flex-wrap">
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
                           <div className={`w-11 h-11 rounded-2xl flex items-center justify-center font-black shadow-sm ${t.color}`}>
                             {t.label.substring(0,1)}
                           </div>
-                          <div>
-                            <div className="font-black text-slate-800">{t.label}</div>
+                          <div className="min-w-0">
+                            <div className="font-black text-slate-800 truncate whitespace-nowrap max-w-[240px]">{t.label}</div>
                             <div className="text-[11px] font-bold text-slate-500">
                               合計：<span className="text-slate-800 font-black">{total}</span>　
                               目標：<span className="text-orange-700 font-black">{goal || "未設定"}</span>
@@ -1848,7 +1971,7 @@ ${newScript}
       };
 
       // =========================
-      // CERT（元コードそのまま）
+      // CERT
       // =========================
       const CertView = () => (
         <div className="space-y-6 animate-fadeInUp">
@@ -1978,7 +2101,7 @@ ${newScript}
       );
 
       // =========================
-      // HISTORY（★一覧：日付クリックでカレンダーモーダル）
+      // HISTORY（一覧の日付クリック→カレンダーで日付変更）
       // =========================
       const HistoryView = () => {
         const dates = Object.keys(dailyRecords).sort((a,b)=> new Date(a)-new Date(b));
@@ -2129,7 +2252,7 @@ ${newScript}
                       <table className="w-full text-sm">
                         <thead className="bg-slate-100">
                           <tr>
-                            <th className="sticky-corner p-3 text-center font-black min-w-[140px]">日付（クリックで変更）</th>
+                            <th className="sticky-corner p-3 text-center font-black min-w-[120px]">日付</th>
                             {displayTricks.map(t => (
                               <th key={t.id} className="p-3 font-black text-slate-700 min-w-[110px] text-center">
                                 {t.label}
@@ -2144,22 +2267,13 @@ ${newScript}
                             const rec = dailyRecords[dk] || {};
                             return (
                               <tr key={dk} className="border-b border-slate-100 hover:bg-slate-50">
-                                <td className="sticky-col p-3 font-black text-slate-700 min-w-[140px]">
+                                <td className="sticky-col p-3 font-black text-slate-700 min-w-[120px]">
+                                  {/* ★日付クリック→カレンダーモーダル */}
                                   <button
-                                    onClick={()=> {
-                                      playClick();
-                                      const d = dateFromKeyLocal(dk);
-                                      setDateMoveModal({
-                                        fromKey: dk,
-                                        selectedKey: dk,
-                                        viewY: d.getFullYear(),
-                                        viewM: d.getMonth()
-                                      });
-                                    }}
-                                    className="underline decoration-slate-200 hover:decoration-slate-400 inline-flex items-center gap-2"
+                                    onClick={()=>{ playClick(); setDateMoveModal({fromKey: dk}); }}
+                                    className="underline decoration-slate-200 hover:decoration-slate-400"
                                     title="日付を変更"
                                   >
-                                    <CalendarDays size={16} className="text-slate-400"/>
                                     {dk}
                                   </button>
                                 </td>
@@ -2223,176 +2337,10 @@ ${newScript}
       };
 
       // =========================
-      // Modals
+      // Modals（★Goal：ドラフト入力）
       // =========================
-      const ModalShell = ({open, onClose, children}) => {
-        if (!open) return null;
-        return (
-          <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="relative w-full max-w-lg animate-popIn">
-              <button onClick={()=>{ playClick(); onClose(); }} className="absolute -top-2 -right-2 w-10 h-10 rounded-full bg-white text-slate-500 hover:text-slate-700 shadow flex items-center justify-center">
-                <X/>
-              </button>
-              {children}
-            </div>
-          </div>
-        );
-      };
-
-      // ★カスタムカレンダーモーダル（日付変更）
-      const DateMoveModal = () => {
-        if (!dateMoveModal) return null;
-        const { fromKey, viewY, viewM, selectedKey } = dateMoveModal;
-
-        const monthStart = new Date(viewY, viewM, 1);
-        const firstDow = monthStart.getDay(); // 0=Sun
-        const daysInMonth = new Date(viewY, viewM + 1, 0).getDate();
-
-        const cells = [];
-        for (let i=0;i<firstDow;i++) cells.push(null);
-        for (let d=1; d<=daysInMonth; d++){
-          cells.push(new Date(viewY, viewM, d));
-        }
-        while (cells.length % 7 !== 0) cells.push(null);
-
-        const dow = ["日","月","火","水","木","金","土"];
-        const todayKey = todayKeyLocal();
-
-        const goMonth = (delta) => {
-          const next = new Date(viewY, viewM + delta, 1);
-          setDateMoveModal(prev => ({
-            ...prev,
-            viewY: next.getFullYear(),
-            viewM: next.getMonth()
-          }));
-        };
-
-        const selectDate = (d) => {
-          const k = toLocalKey(d);
-          setDateMoveModal(prev => ({...prev, selectedKey: k}));
-        };
-
-        const jumpToday = () => {
-          const d = new Date();
-          setDateMoveModal(prev => ({
-            ...prev,
-            viewY: d.getFullYear(),
-            viewM: d.getMonth(),
-            selectedKey: toLocalKey(d)
-          }));
-        };
-
-        return (
-          <ModalShell open={!!dateMoveModal} onClose={()=>setDateMoveModal(null)}>
-            <div className="bg-white rounded-3xl p-6 border-4 border-emerald-200 shadow-2xl">
-              <div className="text-xl font-black text-emerald-800 flex items-center gap-2">
-                <CalendarDays size={20}/> 日付を変更
-              </div>
-              <div className="text-xs font-bold text-slate-500 mt-1">
-                変更元：<span className="font-black text-slate-800">{fromKey}</span>
-              </div>
-
-              <div className="mt-4 flex items-center justify-between gap-2">
-                <button
-                  onClick={()=>{ playClick(); goMonth(-1); }}
-                  className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 font-black text-slate-700 active:scale-95"
-                >
-                  ←
-                </button>
-                <div className="text-lg font-black text-slate-800">
-                  {viewY}年 {viewM+1}月
-                </div>
-                <button
-                  onClick={()=>{ playClick(); goMonth(1); }}
-                  className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 font-black text-slate-700 active:scale-95"
-                >
-                  →
-                </button>
-              </div>
-
-              <div className="mt-3 grid grid-cols-7 gap-2 text-center">
-                {dow.map((w, i) => (
-                  <div key={w} className={`text-xs font-black ${i===0 ? "text-red-500" : i===6 ? "text-blue-500" : "text-slate-500"}`}>
-                    {w}
-                  </div>
-                ))}
-
-                {cells.map((d, idx) => {
-                  if (!d) return <div key={idx} className="h-10"></div>;
-                  const k = toLocalKey(d);
-                  const isSel = (k === selectedKey);
-                  const isToday = (k === todayKey);
-                  const has = !!history[k];
-                  const holiday = isJapaneseHoliday(d);
-                  const weekend = (d.getDay()===0 || d.getDay()===6);
-
-                  const base =
-                    holiday || d.getDay()===0 ? "text-red-600" :
-                    d.getDay()===6 ? "text-blue-600" :
-                    "text-slate-700";
-
-                  return (
-                    <button
-                      key={idx}
-                      onClick={()=>{ playClick(); selectDate(d); }}
-                      className={`h-10 rounded-2xl border-2 font-black transition active:scale-95 ${base} ${
-                        isSel ? "bg-emerald-500 text-white border-emerald-500" :
-                        has ? "bg-emerald-50 border-emerald-200" :
-                        "bg-white border-slate-200 hover:bg-slate-50"
-                      } ${isToday && !isSel ? "ring-2 ring-offset-2 ring-sky-300" : ""}`}
-                      title={holiday ? "祝日" : weekend ? "土日" : ""}
-                    >
-                      {d.getDate()}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="mt-4 flex items-center justify-between">
-                <button
-                  onClick={()=>{ playClick(); jumpToday(); }}
-                  className="px-3 py-2 rounded-xl bg-sky-50 border border-sky-200 text-sky-700 font-black text-xs active:scale-95"
-                >
-                  今日へ
-                </button>
-
-                <div className="text-xs font-black text-slate-600">
-                  変更先：<span className="text-emerald-700">{selectedKey}</span>
-                </div>
-              </div>
-
-              <div className="mt-5 flex gap-2">
-                <button
-                  onClick={()=>{ playClick(); setDateMoveModal(null); }}
-                  className="flex-1 py-3 rounded-2xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-black"
-                >
-                  キャンセル
-                </button>
-                <button
-                  onClick={()=>{ playClick(); moveDateKey(fromKey, selectedKey); }}
-                  className="flex-1 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black shadow"
-                >
-                  変更する
-                </button>
-              </div>
-            </div>
-          </ModalShell>
-        );
-      };
-
-      // Goal settings modal（★draft方式）
-      useEffect(() => {
-        if (!goalModalOpen) return;
-        const d = {};
-        displayTricks.forEach(t => {
-          const v = goals[t.id];
-          d[t.id] = (v === undefined || v === null) ? "" : String(v);
-        });
-        setGoalDraft(d);
-      }, [goalModalOpen, displayTricks, goals]);
-
       const GoalModal = () => (
-        <ModalShell open={goalModalOpen} onClose={()=>setGoalModalOpen(false)}>
+        <ModalShell open={goalModalOpen} onClose={()=>setGoalModalOpen(false)} playClick={playClick}>
           <div className="bg-white rounded-3xl p-6 border-4 border-sky-200 shadow-2xl max-h-[85vh] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between">
               <div className="text-xl font-black text-sky-700 flex items-center gap-2">
@@ -2407,22 +2355,25 @@ ${newScript}
               {displayTricks.map(t => (
                 <div key={t.id} className="p-3 rounded-2xl border border-slate-200 bg-slate-50">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
                       <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black ${t.color}`}>
                         {t.label.substring(0,1)}
                       </div>
-                      <div className="font-black text-slate-800">{t.label}</div>
+                      <div className="font-black text-slate-800 truncate whitespace-nowrap max-w-[220px]">{t.label}</div>
                     </div>
+
                     <div className="flex items-center gap-2">
                       <div className="text-xs font-black text-slate-500">目標</div>
+                      {/* ★type=TEXT + inputMode numeric：入力途中で goals を触らない */}
                       <input
                         type="text"
                         inputMode="numeric"
                         pattern="\d*"
                         value={goalDraft[t.id] ?? ""}
+                        onKeyDown={(e)=>{ if(e.key==="Enter"){ e.preventDefault(); e.currentTarget.blur(); } }}
                         onChange={(e)=>{
-                          const s = (e.target.value ?? "").toString().replace(/[^\d]/g,"");
-                          setGoalDraft(prev => ({...prev, [t.id]: s}));
+                          const raw = normalizeDigits(e.target.value);
+                          setGoalDraft(prev => ({...prev, [t.id]: raw}));
                         }}
                         className="w-28 text-center font-black text-lg rounded-2xl border border-slate-200 bg-white p-2 focus:outline-none focus:ring-2 focus:ring-sky-400 select-text"
                         placeholder="0"
@@ -2447,10 +2398,9 @@ ${newScript}
                 onClick={()=>{
                   playSuccess();
                   const next = {...goals};
-                  displayTricks.forEach(t => {
-                    const s = (goalDraft[t.id] ?? "").toString();
-                    const n = s === "" ? 0 : Number(s);
-                    next[t.id] = (isNaN(n) ? 0 : n);
+                  displayTricks.forEach(t=>{
+                    const v = parseInt(goalDraft[t.id] ?? "", 10);
+                    next[t.id] = isNaN(v) ? 0 : v;
                   });
                   setGoals(next);
                   setGoalModalOpen(false);
@@ -2469,7 +2419,7 @@ ${newScript}
         if (!data) return null;
         const trick = displayTricks.find(t => t.id === data.trickId);
         return (
-          <ModalShell open={!!goalUpdateModal} onClose={()=>setGoalUpdateModal(null)}>
+          <ModalShell open={!!goalUpdateModal} onClose={()=>setGoalUpdateModal(null)} playClick={playClick}>
             <div className="bg-white rounded-3xl p-6 border-4 border-yellow-300 shadow-2xl overflow-hidden relative">
               <div className="absolute inset-0 bg-confetti opacity-30 pointer-events-none"></div>
               <div className="relative z-10 text-center">
@@ -2515,7 +2465,7 @@ ${newScript}
       };
 
       const ImportModal = () => (
-        <ModalShell open={importModalOpen} onClose={()=>setImportModalOpen(false)}>
+        <ModalShell open={importModalOpen} onClose={()=>setImportModalOpen(false)} playClick={playClick}>
           <div className="bg-white rounded-3xl p-6 border-4 border-emerald-300 shadow-2xl max-h-[85vh] overflow-hidden flex flex-col">
             <div className="text-xl font-black text-emerald-700 text-center">📥 記録を復元（貼り付け）</div>
             <div className="text-xs font-bold text-slate-500 mt-2">
@@ -2567,7 +2517,7 @@ ${newScript}
         };
 
         return (
-          <ModalShell open={!!deleteModal} onClose={()=>setDeleteModal(null)}>
+          <ModalShell open={!!deleteModal} onClose={()=>setDeleteModal(null)} playClick={playClick}>
             <div className="bg-white rounded-3xl p-6 border-4 border-slate-200 shadow-2xl">
               <div className="text-lg font-black text-slate-800 text-center">{title}</div>
               <div className="text-sm font-bold text-slate-500 text-center mt-2">{msg}</div>
@@ -2600,33 +2550,31 @@ ${newScript}
       };
 
       // =========================
-      // Main layout
+      // Main layout（★ view/ modal を「コンポーネントとして」使わない＝チカチカ解消）
       // =========================
       return (
         <div className="min-h-screen">
           <canvas ref={confetti.canvasRef} className="fixed inset-0 z-[9998] pointer-events-none"></canvas>
 
-          <Header/>
+          {Header()}
 
           <main className="max-w-2xl mx-auto px-4 py-5 space-y-5 min-h-[80vh]">
-            {activeTab === "home" && <HomeView/>}
-            {activeTab === "input" && <InputView/>}
-            {activeTab === "stats" && <StatsView/>}
-            {activeTab === "cert" && <CertView/>}
-            {activeTab === "history" && <HistoryView/>}
+            {activeTab === "home" && HomeView()}
+            {activeTab === "input" && InputView()}
+            {activeTab === "stats" && StatsView()}
+            {activeTab === "cert" && CertView()}
+            {activeTab === "history" && HistoryView()}
           </main>
 
           <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white/90 backdrop-blur border-t border-slate-200 shadow-[0_-8px_16px_-12px_rgba(0,0,0,0.25)]" style={{paddingBottom:"env(safe-area-inset-bottom, 0px)"}}>
             <div className="max-w-2xl mx-auto px-3 py-2 flex items-center gap-2">
               <NavButton
-                id="home"
                 label="表紙"
                 icon={Home}
                 active={activeTab==="home"}
                 onClick={()=>{ playClick(); setActiveTab("home"); }}
               />
               <NavButton
-                id="input"
                 label="きろく"
                 icon={RefreshCw}
                 active={activeTab==="input"}
@@ -2634,21 +2582,18 @@ ${newScript}
                 badge={targetDate === todayKeyLocal() ? "今日" : ""}
               />
               <NavButton
-                id="stats"
                 label="ごうけい"
                 icon={Trophy}
                 active={activeTab==="stats"}
                 onClick={()=>{ playClick(); setActiveTab("stats"); }}
               />
               <NavButton
-                id="cert"
                 label="認定"
                 icon={Award}
                 active={activeTab==="cert"}
                 onClick={()=>{ playClick(); setActiveTab("cert"); }}
               />
               <NavButton
-                id="history"
                 label="がんばり"
                 icon={Calendar}
                 active={activeTab==="history"}
@@ -2665,12 +2610,25 @@ ${newScript}
             </div>
           )}
 
-          {/* Modals */}
-          <DateMoveModal/>
-          <GoalModal/>
-          <GoalUpdateModal/>
-          <ImportModal/>
-          <DeleteModal/>
+          {/* Modals（関数呼び出しで描画） */}
+          {GoalModal()}
+          {GoalUpdateModal()}
+          {ImportModal()}
+          {DeleteModal()}
+
+          {/* 日付移動カレンダー */}
+          <CalendarMoveModal
+            open={!!dateMoveModal}
+            fromKey={dateMoveModal?.fromKey}
+            initialKey={dateMoveModal?.fromKey || todayKeyLocal()}
+            playClick={playClick}
+            onClose={()=>setDateMoveModal(null)}
+            onConfirm={(newKey)=>{
+              const from = dateMoveModal?.fromKey;
+              setDateMoveModal(null);
+              moveDateKey(from, newKey);
+            }}
+          />
 
           <footer className="hidden sm:block text-center text-xs font-bold text-slate-400 pb-24">
             ©2026 Takayuki WAYAMA なわとび検定カード（最高版）
@@ -2684,4 +2642,3 @@ ${newScript}
   </script>
 </body>
 </html>
-
