@@ -1,0 +1,2410 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>なわとび検定アプリ（カスタマイズ対応版）</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Google Fonts（旧コードの雰囲気を統合） -->
+  <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800&display=swap" rel="stylesheet">
+
+  <!-- Babel for JSX transformation -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Import Map for module resolution -->
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.292.0"
+      }
+    }
+  </script>
+
+  <style>
+    body{
+      font-family: 'M PLUS Rounded 1c', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      padding-bottom: 96px;
+      touch-action: manipulation;
+    }
+
+    /* 横スクロール時のスティッキー列設定 */
+    .sticky-col {
+      position: sticky;
+      left: 0;
+      background-color: white;
+      z-index: 10;
+      border-right: 2px solid #e2e8f0;
+    }
+    .sticky-header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: #f8fafc;
+    }
+    .sticky-corner {
+      position: sticky;
+      left: 0;
+      top: 0;
+      z-index: 30;
+      background: #f8fafc;
+      border-right: 2px solid #e2e8f0;
+    }
+
+    /* スクロールバーのカスタマイズ */
+    .custom-scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    /* ポップアップアニメーション */
+    @keyframes popIn { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+    .animate-popIn { animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+
+    /* 花吹雪のような背景アニメーション（簡易版） */
+    @keyframes confetti { 0% { background-position: 0 0; } 100% { background-position: 100px 100px; } }
+    .bg-confetti {
+      background-image: radial-gradient(#FCD34D 20%, transparent 20%), radial-gradient(#F87171 20%, transparent 20%);
+      background-color: #ffffff;
+      background-position: 0 0, 50px 50px;
+      background-size: 100px 100px;
+      animation: confetti 4s linear infinite;
+    }
+
+    /* input type="number" のスピンボタンを消す */
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type="number"] { -moz-appearance: textfield; }
+
+    /* Canvas (紙吹雪) */
+    #confetti-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 9998;
+    }
+  </style>
+</head>
+
+<body class="bg-sky-50 text-slate-800 select-none">
+  <canvas id="confetti-canvas"></canvas>
+  <div id="root"></div>
+
+  <script type="text/babel" data-type="module" id="app-script">
+    import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import {
+      Trophy, Medal, Star, Calendar, Activity, RefreshCw, ChevronUp, ChevronDown, CheckCircle,
+      User, Award, School, Home, ArrowLeft, RotateCcw, Pencil, Settings, Save, AlertCircle,
+      Download, FileDown, Target, X, Copy, Flame, CalendarDays, Upload, Check, Trash2,
+      Volume2, ClipboardList, BarChart3, Sparkles
+    } from 'lucide-react';
+
+    // --- 定数定義 ---
+
+    // 先生モードフラグ（書き出し時にfalseに書き換えられる）
+    const IS_TEACHER_MODE = true;
+
+    // データのバージョン管理
+    const DATA_VERSION = "2024-v8-custom-level-names";
+
+    // 技ID定義 (内部IDは固定)
+    const TRICK_IDS = [
+      'mae', 'ushiro', 'kataashi', 'kakeashi', 'kakeashi_ushiro',
+      'nibyoushi', 'aya', 'aya_ushiro', 'kousa', 'kousa_ushiro',
+      'niju', 'aya_niju', 'sokushin', 'kousa_niju', 'niju_ushiro',
+      'zengo_kousa', 'sanju'
+    ];
+
+    // 技のデフォルト表示名定義
+    const DEFAULT_TRICK_NAMES = {
+      low: { // 1・2年
+        mae: 'りょうあしとび', ushiro: 'りょうあしとび（うしろ）', kataashi: 'かたあしとび', kakeashi: 'かけあしとび', kakeashi_ushiro: 'かけあしとび（うしろ）',
+        nibyoushi: '２びょうしとび', aya: 'あやとび', aya_ushiro: 'あやとび（うしろ）', kousa: 'こうさとび', kousa_ushiro: 'こうさとび（うしろ）',
+        niju: '２じゅうとび', aya_niju: 'あや２じゅうとび', sokushin: 'そくしんとび', kousa_niju: 'こうさ２じゅうとび', niju_ushiro: '２じゅうとび（うしろ）',
+        zengo_kousa: 'ぜんごこうさとび', sanju: '３じゅうとび'
+      },
+      mid: { // 3・4年
+        mae: 'りょう足とび', ushiro: 'りょう足とび（後ろ）', kataashi: 'かた足とび', kakeashi: 'かけ足とび', kakeashi_ushiro: 'かけ足とび（後ろ）',
+        nibyoushi: '２びょうしとび', aya: 'あやとび', aya_ushiro: 'あやとび（後ろ）', kousa: '交さとび', kousa_ushiro: '交さとび（後ろ）',
+        niju: '２じゅうとび', aya_niju: 'あや２じゅうとび', sokushin: '側振とび', kousa_niju: '交さ２じゅうとび', niju_ushiro: '２じゅうとび（後ろ）',
+        zengo_kousa: '前後交さとび', sanju: '３じゅうとび'
+      },
+      high: { // 5・6年
+        mae: '両足とび', ushiro: '両足とび（後ろ）', kataashi: '片足とび', kakeashi: 'かけ足とび', kakeashi_ushiro: 'かけ足とび（後ろ）',
+        nibyoushi: '２びょうしとび', aya: 'あやとび', aya_ushiro: 'あやとび（後ろ）', kousa: '交差とび', kousa_ushiro: '交差とび（後ろ）',
+        niju: '２重とび', aya_niju: 'あや２重とび', sokushin: '側しんとび', kousa_niju: '交差２重とび', niju_ushiro: '２重とびうしろ',
+        zengo_kousa: '前後交差とび', sanju: '３重とび'
+      }
+    };
+
+    // 技の色設定 (固定)
+    const TRICK_COLORS = {
+      mae: 'bg-blue-100 text-blue-600 border-blue-200',
+      ushiro: 'bg-indigo-100 text-indigo-600 border-indigo-200',
+      kataashi: 'bg-teal-100 text-teal-600 border-teal-200',
+      kakeashi: 'bg-green-100 text-green-600 border-green-200',
+      kakeashi_ushiro: 'bg-emerald-100 text-emerald-600 border-emerald-200',
+      nibyoushi: 'bg-cyan-100 text-cyan-600 border-cyan-200',
+      aya: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+      aya_ushiro: 'bg-amber-100 text-amber-700 border-amber-200',
+      kousa: 'bg-orange-100 text-orange-600 border-orange-200',
+      kousa_ushiro: 'bg-red-100 text-red-600 border-red-200',
+      niju: 'bg-pink-100 text-pink-600 border-pink-200',
+      aya_niju: 'bg-purple-100 text-purple-600 border-purple-200',
+      sokushin: 'bg-lime-100 text-lime-600 border-lime-200',
+      kousa_niju: 'bg-rose-100 text-rose-600 border-rose-200',
+      niju_ushiro: 'bg-fuchsia-100 text-fuchsia-600 border-fuchsia-200',
+      zengo_kousa: 'bg-violet-100 text-violet-600 border-violet-200',
+      sanju: 'bg-slate-100 text-slate-600 border-slate-200',
+    };
+
+    // デフォルト級判定データ
+    const DEFAULT_LEVELS_DATA = {
+      low: [
+        { level: 20, reqs: { mae: 1, kataashi: 1 } },
+        { level: 19, reqs: { mae: 5, kataashi: 4 } },
+        { level: 18, reqs: { mae: 10, ushiro: 1, kataashi: 8, kakeashi: 2 } },
+        { level: 17, reqs: { mae: 15, ushiro: 3, kataashi: 12, kakeashi: 8 } },
+        { level: 16, reqs: { mae: 20, ushiro: 5, kataashi: 16, kakeashi: 16 } },
+        { level: 15, reqs: { mae: 25, ushiro: 7, kataashi: 20, kakeashi: 24 } },
+        { level: 14, reqs: { mae: 30, ushiro: 10, kakeashi: 30, kakeashi_ushiro: 2, nibyoushi: 4 } },
+        { level: 13, reqs: { mae: 35, ushiro: 12, kakeashi: 35, kakeashi_ushiro: 4, nibyoushi: 8 } },
+        { level: 12, reqs: { mae: 40, ushiro: 15, kakeashi: 40, kakeashi_ushiro: 8, nibyoushi: 12 } },
+        { level: 11, reqs: { mae: 45, ushiro: 20, kakeashi: 45, kakeashi_ushiro: 12, nibyoushi: 16 } },
+        { level: 10, reqs: { mae: 50, ushiro: 25, kakeashi: 50, kakeashi_ushiro: 16, nibyoushi: 20 } },
+        { level: 9, reqs: { mae: 55, ushiro: 30, kakeashi: 55, kakeashi_ushiro: 20, nibyoushi: 24 } },
+        { level: 8, reqs: { mae: 60, ushiro: 35, kakeashi: 60, kakeashi_ushiro: 24, nibyoushi: 28 } },
+        { level: 7, reqs: { mae: 65, ushiro: 40, kakeashi: 65, kousa: 1, niju: 1, aya: 2 } },
+        { level: 6, reqs: { mae: 70, ushiro: 45, kakeashi: 70, kousa: 2, niju: 2, aya: 4 } },
+        { level: 5, reqs: { mae: 75, ushiro: 50, kakeashi: 75, kousa: 3, niju: 3, aya: 6 } },
+        { level: 4, reqs: { mae: 80, ushiro: 55, kakeashi: 80, kousa: 4, niju: 4, aya: 8 } },
+        { level: 3, reqs: { mae: 85, ushiro: 60, kakeashi: 85, kousa: 6, niju: 5, aya: 12 } },
+        { level: 2, reqs: { mae: 90, ushiro: 65, kakeashi: 90, kousa: 8, niju: 6, aya: 16 } },
+        { level: 1, reqs: { mae: 100, ushiro: 70, kakeashi: 100, kousa: 10, niju: 7, aya: 24 } },
+      ],
+      mid: [
+        { level: 20, reqs: { mae: 2, nibyoushi: 4 } },
+        { level: 19, reqs: { mae: 7, nibyoushi: 8 } },
+        { level: 18, reqs: { mae: 10, ushiro: 1, nibyoushi: 12, kakeashi: 4 } },
+        { level: 17, reqs: { mae: 15, ushiro: 3, nibyoushi: 16, kakeashi: 10 } },
+        { level: 16, reqs: { mae: 20, ushiro: 5, nibyoushi: 20, kakeashi: 20 } },
+        { level: 15, reqs: { mae: 30, ushiro: 10, nibyoushi: 40, kakeashi: 30 } },
+        { level: 14, reqs: { mae: 40, ushiro: 20, kakeashi: 40, kakeashi_ushiro: 2, aya: 2 } },
+        { level: 13, reqs: { mae: 50, ushiro: 30, kakeashi: 50, kakeashi_ushiro: 8, aya: 4 } },
+        { level: 12, reqs: { mae: 60, ushiro: 40, kakeashi: 60, kakeashi_ushiro: 12, aya: 6 } },
+        { level: 11, reqs: { mae: 70, ushiro: 50, kakeashi: 70, kakeashi_ushiro: 16, aya: 8 } },
+        { level: 10, reqs: { mae: 80, ushiro: 60, kakeashi: 80, kakeashi_ushiro: 20, aya: 10 } },
+        { level: 9, reqs: { mae: 90, ushiro: 80, kakeashi: 90, kakeashi_ushiro: 24, aya: 12 } },
+        { level: 8, reqs: { mae: 100, ushiro: 100, kakeashi: 100, kakeashi_ushiro: 28, aya: 14 } },
+        { level: 7, reqs: { mae: 110, ushiro: 110, kousa: 1, kousa_ushiro: 1, niju: 1, aya_ushiro: 2, aya_niju: 1 } },
+        { level: 6, reqs: { mae: 120, ushiro: 120, kousa: 5, kousa_ushiro: 3, niju: 2, aya_ushiro: 4, aya_niju: 2 } },
+        { level: 5, reqs: { mae: 130, ushiro: 130, kousa: 10, kousa_ushiro: 5, niju: 5, aya_ushiro: 6, aya_niju: 3 } },
+        { level: 4, reqs: { mae: 140, ushiro: 140, kousa: 15, kousa_ushiro: 8, niju: 8, aya_ushiro: 8, aya_niju: 4 } },
+        { level: 3, reqs: { mae: 160, ushiro: 160, kousa: 20, kousa_ushiro: 10, niju: 10, aya_ushiro: 10, aya_niju: 6 } },
+        { level: 2, reqs: { mae: 180, ushiro: 180, kousa: 25, kousa_ushiro: 15, niju: 12, aya_ushiro: 12, aya_niju: 8 } },
+        { level: 1, reqs: { mae: 200, ushiro: 200, kousa_ushiro: 30, niju: 20, aya_niju: 20, kousa_niju: 3, niju_ushiro: 7, sanju: 3 } },
+      ],
+      high: [
+        { level: 20, reqs: { mae: 3, nibyoushi: 4, kakeashi: 3 } },
+        { level: 19, reqs: { mae: 8, nibyoushi: 8, kakeashi: 8 } },
+        { level: 18, reqs: { mae: 15, ushiro: 3, nibyoushi: 12, kakeashi: 15, aya: 2 } },
+        { level: 17, reqs: { mae: 20, ushiro: 8, nibyoushi: 20, kakeashi: 20, aya: 4 } },
+        { level: 16, reqs: { mae: 30, ushiro: 15, nibyoushi: 40, kakeashi: 30, aya: 8 } },
+        { level: 15, reqs: { mae: 40, ushiro: 20, nibyoushi: 60, kakeashi: 40, aya: 14 } },
+        { level: 14, reqs: { mae: 50, ushiro: 30, kakeashi: 50, kakeashi_ushiro: 10, aya: 20, kousa: 1, niju: 2, aya_ushiro: 2 } },
+        { level: 13, reqs: { mae: 60, ushiro: 40, kakeashi: 60, kakeashi_ushiro: 20, aya: 25, kousa: 5, niju: 4, aya_ushiro: 4 } },
+        { level: 12, reqs: { mae: 70, ushiro: 50, kakeashi: 70, kakeashi_ushiro: 30, aya: 30, kousa: 10, niju: 8, aya_ushiro: 8 } },
+        { level: 11, reqs: { mae: 80, ushiro: 60, kakeashi: 80, kakeashi_ushiro: 40, aya: 35, kousa: 15, niju: 12, aya_ushiro: 12 } },
+        { level: 10, reqs: { mae: 90, ushiro: 70, kakeashi: 90, kakeashi_ushiro: 60, aya: 40, kousa: 20, kousa_ushiro: 1, niju: 16, aya_ushiro: 16 } },
+        { level: 9, reqs: { mae: 100, ushiro: 80, kakeashi: 100, kakeashi_ushiro: 80, aya: 45, kousa: 25, kousa_ushiro: 3, niju: 20, aya_ushiro: 20 } },
+        { level: 8, reqs: { mae: 120, ushiro: 100, kakeashi: 120, kakeashi_ushiro: 100, aya: 50, kousa: 30, kousa_ushiro: 5, niju: 24, aya_ushiro: 24 } },
+        { level: 7, reqs: { mae: 140, ushiro: 110, kousa_ushiro: 3, niju: 8, aya_niju: 1, sokushin: 4, niju_ushiro: 1, zengo_kousa: 1 } },
+        { level: 6, reqs: { mae: 150, ushiro: 120, kousa_ushiro: 5, niju: 10, aya_niju: 3, sokushin: 8, niju_ushiro: 2, zengo_kousa: 5 } },
+        { level: 5, reqs: { mae: 160, ushiro: 130, kousa_ushiro: 8, niju: 12, aya_niju: 5, sokushin: 12, niju_ushiro: 3, zengo_kousa: 10 } },
+        { level: 4, reqs: { mae: 170, ushiro: 140, kousa_ushiro: 10, niju: 14, aya_niju: 8, sokushin: 24, niju_ushiro: 4, zengo_kousa: 20 } },
+        { level: 3, reqs: { mae: 180, ushiro: 160, kousa_ushiro: 15, niju: 16, aya_niju: 10, kousa_niju: 1, niju_ushiro: 5, sanju: 1 } },
+        { level: 2, reqs: { mae: 190, ushiro: 180, kousa_ushiro: 20, niju: 18, aya_niju: 15, kousa_niju: 2, niju_ushiro: 6, sanju: 2 } },
+        { level: 1, reqs: { mae: 200, ushiro: 200, kousa_ushiro: 30, niju: 20, aya_niju: 20, kousa_niju: 3, niju_ushiro: 7, sanju: 3 } },
+      ],
+    };
+
+    // --- 日本の祝日・休日判定ロジック (簡易実装) ---
+    function isJapaneseHoliday(date) {
+      const y = date.getFullYear();
+      const m = date.getMonth() + 1;
+      const d = date.getDate();
+      const w = date.getDay(); // 0=Sun, 1=Mon
+
+      // 固定の祝日
+      if (m === 1 && d === 1) return true; // 元日
+      if (m === 2 && d === 11) return true; // 建国記念の日
+      if (m === 2 && d === 23) return true; // 天皇誕生日
+      if (m === 3 && d === Math.floor(20.8431 + 0.242194 * (y - 1980) - Math.floor((y - 1980) / 4))) return true; // 春分の日
+      if (m === 4 && d === 29) return true; // 昭和の日
+      if (m === 5 && d === 3) return true; // 憲法記念日
+      if (m === 5 && d === 4) return true; // みどりの日
+      if (m === 5 && d === 5) return true; // こどもの日
+      if (m === 8 && d === 11) return true; // 山の日（標準日）
+      if (m === 9 && d === Math.floor(23.2488 + 0.242194 * (y - 1980) - Math.floor((y - 1980) / 4))) return true; // 秋分の日
+      if (m === 11 && d === 3) return true; // 文化の日
+      if (m === 11 && d === 23) return true; // 勤労感謝の日
+
+      // ハッピーマンデー
+      const isNthMonday = (n) => {
+        if (w !== 1) return false;
+        return Math.floor((d - 1) / 7) === (n - 1);
+      };
+      if (m === 1 && isNthMonday(2)) return true; // 成人の日
+      if (m === 7 && isNthMonday(3)) return true; // 海の日
+      if (m === 9 && isNthMonday(3)) return true; // 敬老の日
+      if (m === 10 && isNthMonday(2)) return true; // スポーツの日
+
+      // 振替休日（簡易）
+      if (w === 1) {
+        const yesterday = new Date(date);
+        yesterday.setDate(d - 1);
+        if (isJapaneseHoliday(yesterday)) return true;
+      }
+      return false;
+    }
+
+    // --- ユーティリティ：ローカル日付キー（旧コードのUTCズレ対策も統合） ---
+    const toLocalDateKey = (d = new Date()) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+
+    // --- 🎵 Sound（旧コード機能を統合） ---
+    const createSound = () => {
+      let audioCtx = null;
+      const getCtx = () => {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        return audioCtx;
+      };
+      const playTone = (freq, type, duration) => {
+        try {
+          const ctx = getCtx();
+          if (ctx.state === 'suspended') ctx.resume();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freq, ctx.currentTime);
+          gain.gain.setValueAtTime(0.08, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + duration);
+        } catch(e) {}
+      };
+      return {
+        click: () => playTone(600, 'sine', 0.08),
+        success: () => { playTone(800, 'sine', 0.08); setTimeout(() => playTone(1200, 'sine', 0.14), 90); },
+        fanfare: () => {
+          const notes = [523.25, 659.25, 783.99, 1046.50];
+          notes.forEach((f, i) => setTimeout(() => playTone(f, 'triangle', 0.5), i * 140));
+        }
+      };
+    };
+
+    // --- 🎉 Confetti Canvas（旧コード機能を統合） ---
+    class ConfettiEffect {
+      constructor(canvas) {
+        this.canvas = canvas;
+        this.ctx = canvas?.getContext('2d');
+        this.particles = [];
+        this.isAnimating = false;
+        this._onResize = this.resize.bind(this);
+        this.resize();
+        window.addEventListener('resize', this._onResize);
+      }
+      resize() {
+        if (!this.canvas) return;
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
+      }
+      destroy() {
+        window.removeEventListener('resize', this._onResize);
+        this.particles = [];
+        this.isAnimating = false;
+        if (this.ctx) this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      }
+      createParticles() {
+        const colors = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#FF9F43', '#54A0FF', '#A78BFA'];
+        const cx = window.innerWidth / 2;
+        const cy = window.innerHeight / 2;
+        for (let i = 0; i < 120; i++) {
+          this.particles.push({
+            x: cx, y: cy,
+            vx: (Math.random() - 0.5) * 12,
+            vy: (Math.random() - 0.5) * 12 - 6,
+            size: Math.random() * 7 + 4,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            rotation: Math.random() * 360,
+            dr: (Math.random() - 0.5) * 12
+          });
+        }
+      }
+      animate() {
+        if (!this.ctx || !this.canvas) return;
+        if (this.particles.length === 0) {
+          this.isAnimating = false;
+          this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+          return;
+        }
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+          const p = this.particles[i];
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vy += 0.22;
+          p.rotation += p.dr;
+
+          this.ctx.save();
+          this.ctx.translate(p.x, p.y);
+          this.ctx.rotate(p.rotation * Math.PI / 180);
+          this.ctx.fillStyle = p.color;
+          this.ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
+          this.ctx.restore();
+
+          if (p.y > this.canvas.height + 40) this.particles.splice(i, 1);
+        }
+        requestAnimationFrame(() => this.animate());
+      }
+      start() {
+        this.createParticles();
+        if (!this.isAnimating) {
+          this.isAnimating = true;
+          this.animate();
+        }
+      }
+    }
+
+    // --- コンポーネント ---
+    function App() {
+      // --- State ---
+      const [user, setUser] = useState({ grade: 1, classVal: '', number: '', name: '', isRegistered: true });
+
+      const [records, setRecords] = useState({});
+      const [dailyRecords, setDailyRecords] = useState({}); // 日ごとの全記録を保存
+      const [maxRecords, setMaxRecords] = useState({}); // 自己ベスト記録
+      const [history, setHistory] = useState({});
+      const [activeTab, setActiveTab] = useState('home');
+
+      const [showConfetti, setShowConfetti] = useState(false); // 級アップ
+      const [targetDate, setTargetDate] = useState(toLocalDateKey(new Date())); // 記録対象日（ローカル）
+
+      // カスタマイズ用State
+      const [levelsData, setLevelsData] = useState(DEFAULT_LEVELS_DATA);
+      const [trickNames, setTrickNames] = useState(DEFAULT_TRICK_NAMES);
+
+      // 設定画面用State
+      const [settingTab, setSettingTab] = useState('low'); // low, mid, high
+
+      // 旧コード機能：合計と目標（ゴール）
+      const [goals, setGoals] = useState({});
+      const [achievements, setAchievements] = useState([]); // goal-<trickId>-<goal>
+
+      // モーダル（旧コード機能）
+      const [showGoalSettings, setShowGoalSettings] = useState(false);
+      const [pendingGoalUpdate, setPendingGoalUpdate] = useState(null); // {trickId, oldGoal, newGoal}
+      const [showImportModal, setShowImportModal] = useState(false);
+      const [importText, setImportText] = useState('');
+      const [showCopyModal, setShowCopyModal] = useState(false);
+      const [copyModalMessage, setCopyModalMessage] = useState('');
+      const [deleteTargetDate, setDeleteTargetDate] = useState(null);
+      const [showDeleteModal, setShowDeleteModal] = useState(false);
+      const [dateEditTarget, setDateEditTarget] = useState(null); // {oldDate, newDate}
+      const [showDateEditModal, setShowDateEditModal] = useState(false);
+
+      const fileInputRef = useRef(null); // ファイル読み込み用（先生モード：検定表設定）
+      const soundRef = useRef(null);
+      const confettiRef = useRef(null);
+
+      // --- 初期化 & データ保存 ---
+      useEffect(() => {
+        soundRef.current = createSound();
+        const canvas = document.getElementById('confetti-canvas');
+        confettiRef.current = new ConfettiEffect(canvas);
+
+        const savedUser = localStorage.getItem('nawatobi_user');
+        const savedDailyRecords = localStorage.getItem('nawatobi_daily_records');
+        const savedMaxRecords = localStorage.getItem('nawatobi_max_records');
+        const savedHistory = localStorage.getItem('nawatobi_history');
+        const savedLevels = localStorage.getItem('nawatobi_levels');
+        const savedNames = localStorage.getItem('nawatobi_trick_names');
+        const savedVersion = localStorage.getItem('nawatobi_version');
+
+        // 旧コード機能：目標データ
+        const savedGoals = localStorage.getItem('nawatobi_goals');
+        const savedAchievements = localStorage.getItem('nawatobi_achievements');
+
+        // バージョンチェック
+        const isOldVersion = savedVersion !== DATA_VERSION;
+
+        if (savedUser) setUser({ ...JSON.parse(savedUser), isRegistered: true });
+        if (savedHistory) setHistory(JSON.parse(savedHistory));
+
+        // dailyRecordsの初期化と今日のデータのロード（ローカル日付で）
+        let initialDailyRecords = {};
+        if (savedDailyRecords) {
+          initialDailyRecords = JSON.parse(savedDailyRecords);
+          setDailyRecords(initialDailyRecords);
+        }
+
+        // UTCズレ救済（過去バージョンで toISOString を使っていた場合に備えて、今日のズレを拾う）
+        const localToday = toLocalDateKey(new Date());
+        const utcToday = new Date().toISOString().split('T')[0];
+        if (utcToday !== localToday) {
+          // dailyRecords
+          if (initialDailyRecords[utcToday] && !initialDailyRecords[localToday]) {
+            initialDailyRecords[localToday] = initialDailyRecords[utcToday];
+            delete initialDailyRecords[utcToday];
+            setDailyRecords({ ...initialDailyRecords });
+            localStorage.setItem('nawatobi_daily_records', JSON.stringify(initialDailyRecords));
+          }
+          // history
+          const h = savedHistory ? JSON.parse(savedHistory) : {};
+          if (h[utcToday] && !h[localToday]) {
+            h[localToday] = true;
+            delete h[utcToday];
+            setHistory({ ...h });
+            localStorage.setItem('nawatobi_history', JSON.stringify(h));
+          }
+        }
+
+        // 初期表示時（今日）のデータをセット
+        if (initialDailyRecords[localToday]) {
+          setRecords(initialDailyRecords[localToday]);
+        }
+
+        // maxRecordsの初期化ロジック
+        if (savedMaxRecords) {
+          setMaxRecords(JSON.parse(savedMaxRecords));
+        } else if (localStorage.getItem('nawatobi_records')) {
+          const initialMax = JSON.parse(localStorage.getItem('nawatobi_records'));
+          setMaxRecords(initialMax);
+          localStorage.setItem('nawatobi_max_records', JSON.stringify(initialMax));
+        }
+
+        if (isOldVersion) {
+          setLevelsData(DEFAULT_LEVELS_DATA);
+          setTrickNames(DEFAULT_TRICK_NAMES);
+          localStorage.setItem('nawatobi_levels', JSON.stringify(DEFAULT_LEVELS_DATA));
+          localStorage.setItem('nawatobi_trick_names', JSON.stringify(DEFAULT_TRICK_NAMES));
+          localStorage.setItem('nawatobi_version', DATA_VERSION);
+        } else {
+          if (savedLevels) setLevelsData(JSON.parse(savedLevels));
+          if (savedNames) setTrickNames(JSON.parse(savedNames));
+        }
+
+        // goals/achievements
+        if (savedGoals) setGoals(JSON.parse(savedGoals));
+        if (savedAchievements) setAchievements(JSON.parse(savedAchievements));
+
+        return () => {
+          confettiRef.current?.destroy?.();
+        };
+      }, []);
+
+      // データ保存
+      useEffect(() => localStorage.setItem('nawatobi_user', JSON.stringify(user)), [user]);
+      useEffect(() => localStorage.setItem('nawatobi_daily_records', JSON.stringify(dailyRecords)), [dailyRecords]);
+      useEffect(() => localStorage.setItem('nawatobi_records', JSON.stringify(records)), [records]);
+      useEffect(() => localStorage.setItem('nawatobi_max_records', JSON.stringify(maxRecords)), [maxRecords]);
+      useEffect(() => localStorage.setItem('nawatobi_history', JSON.stringify(history)), [history]);
+      useEffect(() => localStorage.setItem('nawatobi_goals', JSON.stringify(goals)), [goals]);
+      useEffect(() => localStorage.setItem('nawatobi_achievements', JSON.stringify(achievements)), [achievements]);
+
+      // targetDateが変更されたときの処理（重要）
+      useEffect(() => {
+        if (dailyRecords[targetDate]) setRecords(dailyRecords[targetDate]);
+        else setRecords({});
+      }, [targetDate, dailyRecords]);
+
+      const sound = useCallback((type) => {
+        try {
+          if (!soundRef.current) return;
+          if (type === 'click') soundRef.current.click();
+          if (type === 'success') soundRef.current.success();
+          if (type === 'fanfare') soundRef.current.fanfare();
+        } catch(e){}
+      }, []);
+
+      // --- 判定ロジック ---
+      const gradeCategory = useMemo(() => {
+        if (user.grade <= 2) return 'low';
+        if (user.grade <= 4) return 'mid';
+        return 'high';
+      }, [user.grade]);
+
+      const currentLevelSet = useMemo(() => {
+        return levelsData[gradeCategory]
+          .map(l => {
+            const name = l.name !== undefined ? l.name : `${l.level}級`;
+            return { ...l, name };
+          })
+          .filter(l => l.name !== '');
+      }, [gradeCategory, levelsData]);
+
+      const displayTricks = useMemo(() => {
+        const activeTricks = new Set();
+        levelsData[gradeCategory].forEach(l => {
+          if (l.name === '') return;
+          if (l.reqs) {
+            Object.entries(l.reqs).forEach(([key, val]) => {
+              if (val > 0) activeTricks.add(key);
+            });
+          }
+        });
+
+        return TRICK_IDS
+          .filter(id => activeTricks.has(id))
+          .map(id => ({
+            id,
+            color: TRICK_COLORS[id],
+            label: trickNames[gradeCategory][id] || DEFAULT_TRICK_NAMES[gradeCategory][id],
+            name: id
+          }));
+      }, [gradeCategory, trickNames, levelsData]);
+
+      // --- 級判定には maxRecords を使用する ---
+      const clearedLevels = useMemo(() => {
+        return currentLevelSet.filter(lvl => {
+          return Object.entries(lvl.reqs).every(([trickId, requiredCount]) => {
+            const currentCount = maxRecords[trickId] || 0;
+            if (!requiredCount || requiredCount <= 0) return true;
+            return currentCount >= requiredCount;
+          });
+        }).map(l => l.level);
+      }, [maxRecords, currentLevelSet]);
+
+      const nextLevels = useMemo(() => {
+        const allLevels = levelsData[gradeCategory]
+          .map(l => ({ ...l, name: l.name !== undefined ? l.name : `${l.level}級` }))
+          .filter(l => l.name !== '');
+        return allLevels.filter(lvl => !clearedLevels.includes(lvl.level));
+      }, [gradeCategory, levelsData, clearedLevels]);
+
+      const currentBestLevel = useMemo(() => {
+        if (clearedLevels.length === 0) return null;
+        const minLevel = Math.min(...clearedLevels);
+        return currentLevelSet.find(l => l.level === minLevel);
+      }, [clearedLevels, currentLevelSet]);
+
+      const goalTitle = useMemo(() => {
+        if (user.grade <= 2) return "つぎの もくひょう （きゅう と わざ の かいすう）";
+        return "次の 目標 （級と 技の 回数）";
+      }, [user.grade]);
+
+      const getTrickLevel = useCallback((trickId) => {
+        const count = maxRecords[trickId] || 0;
+        if (!count || count <= 0) return null;
+        const levels = levelsData[gradeCategory];
+        if (!levels) return null;
+
+        const passedLevels = levels.filter(l => {
+          if (l.name === '') return false;
+          if (!l.reqs) return false;
+          const required = l.reqs[trickId];
+          return required !== undefined && required !== null && required > 0 && count >= required;
+        });
+
+        if (passedLevels.length === 0) return null;
+        return Math.min(...passedLevels.map(l => l.level));
+      }, [levelsData, gradeCategory, maxRecords]);
+
+      const calculateBestLevel = (currentRecords, category) => {
+        if (!levelsData || !levelsData[category]) return 999;
+        const levels = levelsData[category];
+        const cleared = levels.filter(lvl => {
+          if (lvl.name === '') return false;
+          if (!lvl.reqs) return true;
+          return Object.entries(lvl.reqs).every(([trickId, requiredCount]) => {
+            const count = currentRecords[trickId] || 0;
+            if (!requiredCount || requiredCount <= 0) return true;
+            return count >= requiredCount;
+          });
+        }).map(l => l.level);
+
+        if (cleared.length === 0) return 999;
+        return Math.min(...cleared);
+      };
+
+      const calculateLevelForCount = useCallback((trickId, count) => {
+        if (!count || count <= 0) return null;
+        const levels = levelsData[gradeCategory];
+        if (!levels) return null;
+
+        const passedLevels = levels.filter(l => {
+          if (l.name === '') return false;
+          if (!l.reqs) return false;
+          const required = l.reqs[trickId];
+          return required !== undefined && required !== null && required > 0 && count >= required;
+        });
+
+        if (passedLevels.length === 0) return null;
+        return Math.min(...passedLevels.map(l => l.level));
+      }, [levelsData, gradeCategory]);
+
+      // --- 旧コード機能：合計（Totals） & 目標（Goals） ---
+      const totals = useMemo(() => {
+        const t = {};
+        displayTricks.forEach(s => (t[s.id] = 0));
+        Object.values(dailyRecords).forEach(dayObj => {
+          if (!dayObj) return;
+          displayTricks.forEach(s => {
+            const v = parseInt(dayObj[s.id] || 0);
+            t[s.id] += isNaN(v) ? 0 : v;
+          });
+        });
+        return t;
+      }, [dailyRecords, displayTricks]);
+
+      const defaultGoalForTrick = useCallback((trickId) => {
+        // その学年カテゴリでの「最大要件」を拾って、20倍を初期目標に（旧コードの“合計で伸ばす”思想を統合）
+        try {
+          const levels = levelsData[gradeCategory] || [];
+          let maxReq = 0;
+          levels.forEach(l => {
+            if (l.name === '') return;
+            const req = l?.reqs?.[trickId];
+            if (req && req > maxReq) maxReq = req;
+          });
+          let g = Math.max(200, maxReq * 20); // 最低200
+          g = Math.min(10000, g);
+          return g || 1000;
+        } catch(e) {
+          return 1000;
+        }
+      }, [levelsData, gradeCategory]);
+
+      // displayTricks が変わった時、未設定の goal を自動補完
+      useEffect(() => {
+        if (!displayTricks || displayTricks.length === 0) return;
+        setGoals(prev => {
+          const next = { ...prev };
+          let changed = false;
+          displayTricks.forEach(s => {
+            if (!next[s.id] || next[s.id] <= 0) {
+              next[s.id] = defaultGoalForTrick(s.id);
+              changed = true;
+            }
+          });
+          return changed ? next : prev;
+        });
+      }, [displayTricks, defaultGoalForTrick]);
+
+      const isGoalAchievedOnce = useCallback((trickId, goalValue) => {
+        const key = `goal-${trickId}-${goalValue}`;
+        return achievements.includes(key);
+      }, [achievements]);
+
+      const markGoalAchieved = useCallback((trickId, goalValue) => {
+        const key = `goal-${trickId}-${goalValue}`;
+        setAchievements(prev => (prev.includes(key) ? prev : [...prev, key]));
+      }, []);
+
+      const checkAndTriggerGoalUpdate = useCallback((trickId, totalValue) => {
+        const currentGoal = goals[trickId] || defaultGoalForTrick(trickId);
+        if (totalValue >= currentGoal) {
+          if (!isGoalAchievedOnce(trickId, currentGoal)) {
+            markGoalAchieved(trickId, currentGoal);
+            sound('fanfare');
+            confettiRef.current?.start?.();
+
+            const nextGoal = Math.ceil(currentGoal * 1.2);
+            setPendingGoalUpdate({ trickId, oldGoal: currentGoal, newGoal: nextGoal });
+          }
+        }
+      }, [goals, defaultGoalForTrick, isGoalAchievedOnce, markGoalAchieved, sound]);
+
+      // --- クリップボードコピー（入力中の日の“1行コピー”） ---
+      const handleCopyToClipboard = () => {
+        sound('click');
+        const header = ['名前', '現在の級', ...displayTricks.map(t => t.label)].join('\t');
+        const currentLevelName = currentBestLevel ? currentBestLevel.name : 'なし';
+
+        const rowData = [
+          (user.name || '名無し'),
+          currentLevelName
+        ];
+
+        displayTricks.forEach(trick => {
+          const count = records[trick.id] || 0;
+          const level = calculateLevelForCount(trick.id, parseInt(count || 0));
+          const cellData = level ? `${count}(${level}級)` : `${count}`;
+          rowData.push(cellData);
+        });
+
+        const textToCopy = header + '\n' + rowData.join('\t');
+
+        const doCopyFallback = () => {
+          const textArea = document.createElement("textarea");
+          textArea.value = textToCopy;
+          textArea.style.position = "fixed";
+          textArea.style.left = "-9999px";
+          textArea.style.top = "0";
+          document.body.appendChild(textArea);
+          textArea.focus();
+          textArea.select();
+          try {
+            const ok = document.execCommand('copy');
+            document.body.removeChild(textArea);
+            if (ok) {
+              setCopyModalMessage('記録をコピーしました！\nExcelやスプレッドシートに貼り付けてください。');
+              setShowCopyModal(true);
+              sound('success');
+            } else {
+              alert('コピーに失敗しました。');
+            }
+          } catch (err) {
+            document.body.removeChild(textArea);
+            alert('コピーできませんでした。');
+          }
+        };
+
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(textToCopy)
+            .then(() => {
+              setCopyModalMessage('記録をコピーしました！\nExcelやスプレッドシートに貼り付けてください。');
+              setShowCopyModal(true);
+              sound('success');
+            })
+            .catch(() => doCopyFallback());
+        } else {
+          doCopyFallback();
+        }
+      };
+
+      // --- 旧コード機能：一覧表（全日）コピー ---
+      const exportAllAsTSV = useCallback(() => {
+        sound('click');
+        const dates = Object.keys(dailyRecords).sort((a,b) => new Date(a) - new Date(b));
+        if (dates.length === 0) {
+          alert('日別の記録がまだありません。');
+          return;
+        }
+
+        const headers = ['日付', ...displayTricks.map(t => t.label)];
+        const rows = [headers.join('\t')];
+
+        const totalRow = {};
+        displayTricks.forEach(t => totalRow[t.id] = 0);
+
+        dates.forEach(dateKey => {
+          const dayObj = dailyRecords[dateKey] || {};
+          const row = [dateKey];
+          displayTricks.forEach(t => {
+            const v = parseInt(dayObj[t.id] || 0) || 0;
+            totalRow[t.id] += v;
+            row.push(v);
+          });
+          rows.push(row.join('\t'));
+        });
+
+        const totalLine = ['合計'];
+        displayTricks.forEach(t => totalLine.push(totalRow[t.id] || 0));
+        rows.push(totalLine.join('\t'));
+
+        const textToCopy = rows.join('\n');
+
+        const doCopyFallback = () => {
+          const ta = document.createElement('textarea');
+          ta.value = textToCopy;
+          ta.style.position = 'fixed';
+          ta.style.left = '-9999px';
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          try {
+            const ok = document.execCommand('copy');
+            document.body.removeChild(ta);
+            if (ok) {
+              setCopyModalMessage('一覧表をコピーしました！\nスプレッドシートで Ctrl+V（貼り付け）してください。');
+              setShowCopyModal(true);
+              sound('success');
+            } else {
+              alert('コピーに失敗しました。');
+            }
+          } catch (e) {
+            document.body.removeChild(ta);
+            alert('コピーに失敗しました。');
+          }
+        };
+
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(textToCopy)
+            .then(() => {
+              setCopyModalMessage('一覧表をコピーしました！\nスプレッドシートで Ctrl+V（貼り付け）してください。');
+              setShowCopyModal(true);
+              sound('success');
+            })
+            .catch(() => doCopyFallback());
+        } else {
+          doCopyFallback();
+        }
+      }, [dailyRecords, displayTricks, sound]);
+
+      // --- 旧コード機能：インポート（TSV貼り付け） ---
+      const executeImport = useCallback(() => {
+        sound('click');
+        const text = importText;
+        if (!text.trim()) {
+          alert('データを貼り付けてください。');
+          return;
+        }
+
+        try {
+          const lines = text.trim().split(/\r?\n/);
+          if (lines.length < 2) {
+            alert('データ形式が正しくないようです（行数が足りません）。');
+            return;
+          }
+
+          const headers = lines[0].split('\t');
+
+          // 1列目は日付想定。2列目以降は種目名。
+          const idxByTrick = {};
+          displayTricks.forEach(trick => {
+            const idx = headers.indexOf(trick.label);
+            if (idx !== -1) idxByTrick[trick.id] = idx;
+          });
+
+          let newDaily = { ...dailyRecords };
+          let newMax = { ...maxRecords };
+          let newHistory = { ...history };
+
+          let importedCount = 0;
+
+          for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].split('\t');
+            const dateStr = cols[0];
+
+            if (!dateStr || dateStr.includes('合計')) continue;
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) continue;
+
+            if (!newDaily[dateStr]) newDaily[dateStr] = {};
+            let anyPositive = false;
+
+            displayTricks.forEach(trick => {
+              const idx = idxByTrick[trick.id];
+              if (idx === undefined) return;
+              if (idx < cols.length) {
+                const val = parseInt(cols[idx]);
+                if (!isNaN(val)) {
+                  newDaily[dateStr][trick.id] = val;
+                  if (val > 0) anyPositive = true;
+                  if ((newMax[trick.id] || 0) < val) newMax[trick.id] = val;
+                }
+              }
+            });
+
+            if (anyPositive) newHistory[dateStr] = true;
+            importedCount++;
+          }
+
+          setDailyRecords(newDaily);
+          setMaxRecords(newMax);
+          setHistory(newHistory);
+          localStorage.setItem('nawatobi_daily_records', JSON.stringify(newDaily));
+          localStorage.setItem('nawatobi_max_records', JSON.stringify(newMax));
+          localStorage.setItem('nawatobi_history', JSON.stringify(newHistory));
+
+          setShowImportModal(false);
+          setImportText('');
+          alert(`${importedCount}件のデータを読み込みました！`);
+          sound('success');
+
+        } catch (e) {
+          console.error(e);
+          alert('エラーが発生しました。データ形式を確認してください。');
+        }
+      }, [importText, displayTricks, dailyRecords, maxRecords, history, sound]);
+
+      // --- 「けってい」ボタン押下時の処理（ここで級判定 + 旧コード機能：目標チェックも行う） ---
+      const handleConfirmRecord = (trickId) => {
+        sound('click');
+
+        const currentCount = parseInt(records[trickId] || 0);
+        const currentMax = maxRecords[trickId] || 0;
+
+        const currentCategory = user.grade <= 2 ? 'low' : user.grade <= 4 ? 'mid' : 'high';
+        const oldBestLevel = calculateBestLevel(maxRecords, currentCategory);
+
+        let nextMaxRecords = { ...maxRecords };
+        let isNewRecord = false;
+
+        // 日ごとの記録（dailyRecords）を更新
+        const newDailyRecords = { ...dailyRecords };
+        if (!newDailyRecords[targetDate]) newDailyRecords[targetDate] = {};
+        newDailyRecords[targetDate][trickId] = currentCount;
+
+        setDailyRecords(newDailyRecords);
+        localStorage.setItem('nawatobi_daily_records', JSON.stringify(newDailyRecords));
+
+        // 自己ベスト更新チェック
+        if (currentCount > currentMax) {
+          nextMaxRecords[trickId] = currentCount;
+          setMaxRecords(nextMaxRecords);
+          localStorage.setItem('nawatobi_max_records', JSON.stringify(nextMaxRecords));
+          isNewRecord = true;
+        }
+
+        // 履歴の更新
+        const newHistory = { ...history, [targetDate]: true };
+        setHistory(newHistory);
+        localStorage.setItem('nawatobi_history', JSON.stringify(newHistory));
+
+        // 級判定（新しい状態でのベスト級）
+        const newBestLevel = calculateBestLevel(nextMaxRecords, currentCategory);
+
+        // 旧コード機能：合計目標チェック（今回の技だけチェック）
+        const newTotal = (() => {
+          let t = 0;
+          Object.values(newDailyRecords).forEach(dayObj => {
+            if (!dayObj) return;
+            t += (parseInt(dayObj[trickId] || 0) || 0);
+          });
+          return t;
+        })();
+        checkAndTriggerGoalUpdate(trickId, newTotal);
+
+        // 級が上がった場合
+        if (newBestLevel < oldBestLevel) {
+          setShowConfetti(true);
+          sound('fanfare');
+          confettiRef.current?.start?.();
+        } else if (isNewRecord) {
+          const t = displayTricks.find(x => x.id === trickId);
+          sound('success');
+          alert(`「${t ? t.label : trickId}」の 自己ベスト(${currentCount}回) を こうしん しました！`);
+        } else {
+          sound('success');
+        }
+      };
+
+      // --- レコード更新時（入力中は入力値のみ更新） ---
+      const updateRecord = (trickId, count) => {
+        const newRecords = { ...records, [trickId]: count };
+        setRecords(newRecords);
+      };
+
+      // --- 設定変更ハンドラ（先生モード：検定表） ---
+      const handleSaveSettings = () => {
+        localStorage.setItem('nawatobi_levels', JSON.stringify(levelsData));
+        localStorage.setItem('nawatobi_trick_names', JSON.stringify(trickNames));
+        localStorage.setItem('nawatobi_version', DATA_VERSION);
+        alert('設定をこのブラウザに保存しました！\n生徒に配る場合は「児童配付用ファイルを書き出し」ボタンを使ってください。');
+        sound('success');
+      };
+
+      const handleDownloadJson = () => {
+        sound('click');
+        const data = { levelsData, trickNames, version: DATA_VERSION };
+        const jsonStr = JSON.stringify(data, null, 2);
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `nawatobi-settings-${toLocalDateKey(new Date())}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      };
+
+      const handleUploadJson = (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        sound('click');
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = JSON.parse(e.target.result);
+            if (data.levelsData && data.trickNames) {
+              setLevelsData(data.levelsData);
+              setTrickNames(data.trickNames);
+              localStorage.setItem('nawatobi_levels', JSON.stringify(data.levelsData));
+              localStorage.setItem('nawatobi_trick_names', JSON.stringify(data.trickNames));
+              localStorage.setItem('nawatobi_version', DATA_VERSION);
+              alert('設定ファイルを読み込み、復元しました！');
+              sound('success');
+            } else {
+              alert('無効なファイル形式です。');
+            }
+          } catch (error) {
+            console.error(error);
+            alert('ファイルの読み込みに失敗しました。');
+          }
+        };
+        reader.readAsText(file);
+        event.target.value = '';
+      };
+
+      const handleExportHtml = () => {
+        sound('click');
+        const scriptContent = document.getElementById('app-script').textContent;
+
+        const newLevelsDataStr = 'const DEFAULT_LEVELS_DATA = ' + JSON.stringify(levelsData, null, 2) + ';';
+        const newTrickNamesStr = 'const DEFAULT_TRICK_NAMES = ' + JSON.stringify(trickNames, null, 2) + ';';
+        const newVersionStr = 'const DATA_VERSION = "' + DATA_VERSION + '-custom-' + Date.now() + '";';
+
+        let newScriptContent = scriptContent
+          .replace(/const DEFAULT_LEVELS_DATA = \{[\s\S]*?\};/, newLevelsDataStr)
+          .replace(/const DEFAULT_TRICK_NAMES = \{[\s\S]*?\};/, newTrickNamesStr)
+          .replace(/const DATA_VERSION = ".*?";/, newVersionStr)
+          .replace('const IS_TEACHER_MODE = true;', 'const IS_TEACHER_MODE = false;');
+
+        // ※旧コード統合により、ローカル日付キー関数なども含めてそのまま書き出されます。
+
+        const htmlContent =
+'<!DOCTYPE html>\n' +
+'<html lang="ja">\n' +
+'<head>\n' +
+'  <meta charset="UTF-8">\n' +
+'  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
+'  <title>なわとび検定アプリ（' + new Date().toLocaleDateString() + '版）</title>\n' +
+'  <script src="https://cdn.tailwindcss.com"><\/script>\n' +
+'  <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800&display=swap" rel="stylesheet">\n' +
+'  <script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>\n' +
+'  <script type="importmap">\n' +
+'    {\n' +
+'      "imports": {\n' +
+'        "react": "https://esm.sh/react@18.2.0",\n' +
+'        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",\n' +
+'        "lucide-react": "https://esm.sh/lucide-react@0.292.0"\n' +
+'      }\n' +
+'    }\n' +
+'  <\/script>\n' +
+'  <style>\n' +
+'    body{font-family:\'M PLUS Rounded 1c\', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; -webkit-tap-highlight-color: transparent; padding-bottom:96px; touch-action:manipulation;}\n' +
+'    .sticky-col{position:sticky;left:0;background-color:white;z-index:10;border-right:2px solid #e2e8f0;}\n' +
+'    .sticky-header{position:sticky;top:0;z-index:20;background:#f8fafc;}\n' +
+'    .sticky-corner{position:sticky;left:0;top:0;z-index:30;background:#f8fafc;border-right:2px solid #e2e8f0;}\n' +
+'    .custom-scrollbar::-webkit-scrollbar{height:8px;width:8px;}\n' +
+'    .custom-scrollbar::-webkit-scrollbar-track{background:#f1f5f9;}\n' +
+'    .custom-scrollbar::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px;}\n' +
+'    .custom-scrollbar::-webkit-scrollbar-thumb:hover{background:#94a3b8;}\n' +
+'    @keyframes popIn{0%{transform:scale(0.8);opacity:0;}100%{transform:scale(1);opacity:1;}}\n' +
+'    .animate-popIn{animation:popIn 0.4s cubic-bezier(0.175,0.885,0.32,1.275) forwards;}\n' +
+'    @keyframes confetti{0%{background-position:0 0;}100%{background-position:100px 100px;}}\n' +
+'    .bg-confetti{background-image:radial-gradient(#FCD34D 20%, transparent 20%), radial-gradient(#F87171 20%, transparent 20%); background-color:#fff; background-position:0 0, 50px 50px; background-size:100px 100px; animation:confetti 4s linear infinite;}\n' +
+'    input[type="number"]::-webkit-outer-spin-button,input[type="number"]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}\n' +
+'    input[type="number"]{-moz-appearance:textfield;}\n' +
+'    #confetti-canvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:9998;}\n' +
+'  </style>\n' +
+'</head>\n' +
+'<body class="bg-sky-50 text-slate-800 select-none">\n' +
+'  <canvas id="confetti-canvas"></canvas>\n' +
+'  <div id="root"></div>\n' +
+'  <script type="text/babel" data-type="module" id="app-script">\n' +
+newScriptContent + '\n' +
+'  <\/script>\n' +
+'</body>\n' +
+'</html>';
+
+        const blob = new Blob([htmlContent], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `nawatobi-custom-${toLocalDateKey(new Date())}.html`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      };
+
+      const handleResetSettings = () => {
+        sound('click');
+        if (window.confirm('本当に初期設定（大阪府モデル）に戻しますか？ カスタマイズした内容は消えてしまいます。')) {
+          setLevelsData(DEFAULT_LEVELS_DATA);
+          setTrickNames(DEFAULT_TRICK_NAMES);
+          localStorage.removeItem('nawatobi_levels');
+          localStorage.removeItem('nawatobi_trick_names');
+          localStorage.removeItem('nawatobi_version');
+          alert('初期設定に戻しました。');
+          window.location.reload();
+        }
+      };
+
+      // 現コードのリセット（記録だけ）
+      const handleReset = () => {
+        sound('click');
+        if (window.confirm('本当に記録をリセットして最初から始めますか？設定は保持されます。')) {
+          setRecords({});
+          setDailyRecords({});
+          setMaxRecords({});
+          setHistory({});
+          localStorage.removeItem('nawatobi_records');
+          localStorage.removeItem('nawatobi_daily_records');
+          localStorage.removeItem('nawatobi_max_records');
+          localStorage.removeItem('nawatobi_history');
+          localStorage.removeItem('nawatobi_goals');
+          localStorage.removeItem('nawatobi_achievements');
+          window.location.reload();
+        }
+      };
+
+      // --- 旧コード機能：日付変更（一覧表で使う） ---
+      const sortedDates = useMemo(() => {
+        return Object.keys(dailyRecords).sort((a,b) => new Date(a) - new Date(b));
+      }, [dailyRecords]);
+
+      const openDateEdit = (oldDate) => {
+        sound('click');
+        setDateEditTarget({ oldDate, newDate: oldDate });
+        setShowDateEditModal(true);
+      };
+
+      const applyDateEdit = () => {
+        sound('click');
+        const oldDate = dateEditTarget?.oldDate;
+        const newDate = dateEditTarget?.newDate;
+        if (!oldDate || !newDate) return;
+
+        if (oldDate === newDate) {
+          setShowDateEditModal(false);
+          return;
+        }
+        if (dailyRecords[newDate]) {
+          alert('その日付はすでに存在します（上書き防止）。\n先に既存の記録を消すか、別の日付を選んでください。');
+          return;
+        }
+
+        const nextDaily = { ...dailyRecords };
+        nextDaily[newDate] = nextDaily[oldDate];
+        delete nextDaily[oldDate];
+
+        const nextHistory = { ...history };
+        if (nextHistory[oldDate]) {
+          nextHistory[newDate] = true;
+          delete nextHistory[oldDate];
+        }
+
+        setDailyRecords(nextDaily);
+        setHistory(nextHistory);
+
+        // targetDateが当日なら追従
+        if (targetDate === oldDate) setTargetDate(newDate);
+
+        setShowDateEditModal(false);
+        sound('success');
+      };
+
+      // --- 旧コード機能：日付削除（一覧表で使う） ---
+      const openDeleteDay = (dateKey) => {
+        sound('click');
+        setDeleteTargetDate(dateKey);
+        setShowDeleteModal(true);
+      };
+
+      const executeDeleteDay = () => {
+        sound('click');
+        const d = deleteTargetDate;
+        if (!d) return;
+
+        const nextDaily = { ...dailyRecords };
+        delete nextDaily[d];
+
+        const nextHistory = { ...history };
+        delete nextHistory[d];
+
+        setDailyRecords(nextDaily);
+        setHistory(nextHistory);
+
+        // records表示中の日付ならリセット
+        if (targetDate === d) {
+          const today = toLocalDateKey(new Date());
+          setTargetDate(today);
+        }
+
+        setShowDeleteModal(false);
+        setDeleteTargetDate(null);
+        sound('success');
+      };
+
+      // --- 設定（検定表）編集 ---
+      const handleLevelReqChange = (category, levelIndex, trickId, value) => {
+        const newData = { ...levelsData };
+        const val = parseInt(value);
+
+        if (isNaN(val) || val <= 0) {
+          if (newData[category][levelIndex].reqs) {
+            delete newData[category][levelIndex].reqs[trickId];
+          }
+        } else {
+          if (!newData[category][levelIndex].reqs) newData[category][levelIndex].reqs = {};
+          newData[category][levelIndex].reqs[trickId] = val;
+        }
+        setLevelsData(newData);
+      };
+
+      const handleTrickNameChange = (category, trickId, newName) => {
+        const newNames = { ...trickNames };
+        newNames[category][trickId] = newName;
+        setTrickNames(newNames);
+      };
+
+      const handleLevelNameChange = (category, levelIndex, newName) => {
+        const newData = { ...levelsData };
+        newData[category][levelIndex].name = newName;
+        setLevelsData(newData);
+      };
+
+      // --- 旧コード機能：目標設定（モーダル） ---
+      const saveGoalSettings = () => {
+        sound('success');
+        setShowGoalSettings(false);
+      };
+
+      // --- 旧コード機能：目標更新（20%UP） ---
+      const confirmGoalUpdate = () => {
+        if (!pendingGoalUpdate) return;
+        sound('success');
+        setGoals(prev => ({ ...prev, [pendingGoalUpdate.trickId]: pendingGoalUpdate.newGoal }));
+        setPendingGoalUpdate(null);
+      };
+      const closeGoalUpdate = () => {
+        sound('click');
+        setPendingGoalUpdate(null);
+      };
+
+      // ---------------------------
+      // 設定画面（先生用）
+      // ---------------------------
+      if (activeTab === 'settings' && IS_TEACHER_MODE) {
+        return (
+          <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-20">
+            <header className="bg-slate-800 text-white p-4 sticky top-0 z-30 shadow-md flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button onClick={() => { sound('click'); setActiveTab('home'); }} className="p-2 hover:bg-slate-700 rounded-full transition-colors">
+                  <ArrowLeft size={20} />
+                </button>
+                <h1 className="text-lg font-bold flex items-center gap-2">
+                  <Settings size={20} />
+                  検定表作成（先生用）
+                </h1>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  style={{ display: 'none' }}
+                  accept=".json"
+                  onChange={handleUploadJson}
+                />
+                <button onClick={() => { sound('click'); fileInputRef.current.click(); }} className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-lg font-bold flex items-center gap-1 shadow-sm active:scale-95 transition-all text-xs sm:text-sm">
+                  <Upload size={18} />
+                  <span className="hidden sm:inline">設定読込(JSON)</span>
+                </button>
+                <button onClick={handleDownloadJson} className="bg-orange-600 hover:bg-orange-500 text-white px-3 py-2 rounded-lg font-bold flex items-center gap-1 shadow-sm active:scale-95 transition-all text-xs sm:text-sm">
+                  <Download size={18} />
+                  <span className="hidden sm:inline">設定保存(JSON)</span>
+                </button>
+                <button onClick={handleExportHtml} className="bg-green-600 hover:bg-green-500 text-white px-3 py-2 rounded-lg font-bold flex items-center gap-1 shadow-sm active:scale-95 transition-all text-xs sm:text-sm">
+                  <FileDown size={18} />
+                  <span className="hidden sm:inline">児童配付用ファイルを</span>書き出し
+                </button>
+                <button onClick={handleSaveSettings} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-sm active:scale-95 transition-all text-sm">
+                  <Save size={18} /> 保存
+                </button>
+              </div>
+            </header>
+
+            <main className="p-4 max-w-full overflow-hidden">
+              <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4">
+                <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
+                  {[{id: 'low', label: '1・2年用'}, {id: 'mid', label: '3・4年用'}, {id: 'high', label: '5・6年用'}].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => { sound('click'); setSettingTab(tab.id); }}
+                      className={`px-4 py-2 rounded-full font-bold whitespace-nowrap transition-colors ${settingTab === tab.id ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="text-sm text-slate-500 mb-2 flex items-center gap-2">
+                  <AlertCircle size={16} />
+                  <span>
+                    縦軸が級、横軸が技です。必要な回数を入力してください（空欄は「なし」）。<br/>
+                    <strong>級の名前（例：20級）を空欄にすると、その級は一覧に表示されなくなります（無効化）。</strong><br/>
+                    技の名前（ヘッダー）もクリックして変更できます。
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow border border-slate-200 overflow-hidden relative">
+                <div className="overflow-x-auto custom-scrollbar">
+                  <table className="w-full text-sm text-left border-collapse">
+                    <thead className="bg-slate-100 text-slate-700 font-bold sticky top-0 z-20">
+                      <tr>
+                        <th className="p-3 border-b border-slate-200 min-w-[80px] text-center sticky-col">級</th>
+                        {TRICK_IDS.map(trickId => (
+                          <th key={trickId} className="p-2 border-b border-r border-slate-200 min-w-[100px] align-bottom">
+                            <div className="flex flex-col gap-1">
+                              <input
+                                type="text"
+                                value={trickNames[settingTab][trickId]}
+                                onChange={(e) => handleTrickNameChange(settingTab, trickId, e.target.value)}
+                                className="bg-transparent border-b border-dashed border-slate-300 focus:border-blue-500 focus:outline-none text-center w-full font-bold text-xs py-1 select-text"
+                              />
+                            </div>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {levelsData[settingTab].map((levelData, idx) => (
+                        <tr key={levelData.level} className="hover:bg-slate-50 border-b border-slate-100 last:border-0">
+                          <td className="p-2 font-bold text-center bg-slate-50 sticky-col text-slate-600">
+                            <input
+                              type="text"
+                              value={levelData.name !== undefined ? levelData.name : `${levelData.level}級`}
+                              onChange={(e) => handleLevelNameChange(settingTab, idx, e.target.value)}
+                              className={`w-full bg-transparent text-center focus:outline-none border-b border-transparent focus:border-blue-500 transition-colors select-text ${levelData.name === '' ? 'bg-red-50 text-red-300' : ''}`}
+                              placeholder={`${levelData.level}級`}
+                            />
+                          </td>
+                          {TRICK_IDS.map(trickId => {
+                            const count = levelData.reqs && levelData.reqs[trickId] ? levelData.reqs[trickId] : '';
+                            return (
+                              <td key={trickId} className="p-1 border-r border-slate-100 text-center">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={count}
+                                  onChange={(e) => handleLevelReqChange(settingTab, idx, trickId, e.target.value)}
+                                  className={`w-full text-center p-1 rounded focus:outline-none focus:ring-2 focus:ring-blue-400 ${count ? 'font-bold text-blue-600 bg-blue-50/50' : 'text-slate-300'} select-text`}
+                                  placeholder="-"
+                                />
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="mt-8 text-center">
+                <button onClick={handleResetSettings} className="text-red-400 hover:text-red-600 underline text-xs flex items-center justify-center gap-1 mx-auto">
+                  <RotateCcw size={12} /> 設定を初期値に戻す
+                </button>
+              </div>
+            </main>
+          </div>
+        );
+      }
+
+      // ---------------------------
+      // メイン画面
+      // ---------------------------
+      return (
+        <div className="min-h-screen bg-sky-50 font-sans text-slate-800 pb-24 selection:bg-yellow-200">
+
+          {/* ✅ 旧コード機能：コピー成功モーダル */}
+          {showCopyModal && (
+            <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-sm border-4 border-sky-300 shadow-2xl relative text-center animate-popIn">
+                <div className="text-5xl mb-3">📋</div>
+                <h3 className="text-xl font-extrabold text-sky-600 mb-2">コピーしました！</h3>
+                <p className="text-sm text-slate-600 mb-5 font-bold leading-relaxed whitespace-pre-line">
+                  {copyModalMessage || '貼り付けて使ってください。'}
+                </p>
+                <button onClick={() => { sound('click'); setShowCopyModal(false); }} className="bg-sky-500 text-white font-bold py-3 px-8 rounded-xl shadow-lg hover:bg-sky-600 transition w-full">
+                  OK
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ✅ 旧コード機能：目標達成→次目標提案モーダル */}
+          {pendingGoalUpdate && (
+            <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-sm border-4 border-yellow-300 shadow-2xl relative overflow-hidden animate-popIn">
+                <div className="absolute inset-0 bg-yellow-50 -z-10"></div>
+                <button onClick={closeGoalUpdate} className="absolute top-3 right-3 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full p-2">
+                  <X size={20} />
+                </button>
+                <div className="text-6xl mb-4 text-center">🎊</div>
+                <h3 className="text-2xl font-extrabold text-orange-600 mb-2 text-center">目標達成！</h3>
+                <p className="text-center font-bold text-slate-700 mb-4">おめでとうございます！</p>
+
+                <div className="bg-white p-4 rounded-xl border border-orange-200 mb-5 text-center shadow-sm">
+                  <div className="text-sm text-slate-500 font-bold mb-1">次の目標</div>
+                  <div className="text-lg font-bold text-sky-600 mb-2">
+                    {displayTricks.find(t => t.id === pendingGoalUpdate.trickId)?.label || 'この種目'}
+                  </div>
+                  <div className="flex items-center justify-center gap-2 text-xl font-extrabold text-orange-600">
+                    <span className="line-through text-slate-400 text-base">{pendingGoalUpdate.oldGoal}</span>
+                    <span>→</span>
+                    <span className="text-3xl">{pendingGoalUpdate.newGoal}</span>
+                    <span className="text-sm">回</span>
+                  </div>
+                  <div className="text-xs text-orange-400 font-bold mt-1">(20% UP!)</div>
+                </div>
+
+                <p className="text-center font-bold text-slate-600 mb-4">に変更しますか？</p>
+                <div className="flex gap-3">
+                  <button onClick={closeGoalUpdate} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-600 font-bold py-3 rounded-xl transition">いいえ</button>
+                  <button onClick={confirmGoalUpdate} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl shadow-lg transition">はい</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ✅ 旧コード機能：インポートモーダル */}
+          {showImportModal && (
+            <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-lg border-4 border-green-300 shadow-2xl relative flex flex-col max-h-[90vh] animate-popIn">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xl font-extrabold text-green-600">📥 記録を復元（インポート）</h3>
+                  <button onClick={() => { sound('click'); setShowImportModal(false); }} className="text-slate-400 hover:text-slate-600 text-2xl font-bold bg-slate-100 rounded-full w-8 h-8 flex items-center justify-center">×</button>
+                </div>
+                <p className="text-xs text-slate-500 mb-2">
+                  スプレッドシートのデータ（<span className="font-bold">日付</span>＋<span className="font-bold">種目列</span>）をコピーして、ここに貼り付けてください。
+                </p>
+                <textarea
+                  value={importText}
+                  onChange={(e) => setImportText(e.target.value)}
+                  className="w-full h-44 border-2 border-slate-200 rounded-xl p-3 text-xs font-mono bg-slate-50 mb-4 focus:ring-2 focus:ring-green-400 outline-none resize-none"
+                  placeholder="（例）&#10;日付\tまえとび\tうしろとび&#10;2026-01-10\t10\t5&#10;2026-01-11\t12\t0"
+                />
+                <div className="flex gap-3 shrink-0">
+                  <button onClick={() => { sound('click'); setShowImportModal(false); }} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-600 font-bold py-3 rounded-xl transition">キャンセル</button>
+                  <button onClick={executeImport} className="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl shadow-lg transition">読み込む</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ✅ 旧コード機能：日付削除モーダル */}
+          {showDeleteModal && (
+            <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-xs border-4 border-slate-200 shadow-xl animate-popIn">
+                <h3 className="text-lg font-bold text-slate-700 mb-3 text-center">この日の記録を削除しますか？</h3>
+                <p className="text-sm text-slate-500 mb-5 text-center">この操作は元に戻せません。</p>
+                <div className="flex gap-3">
+                  <button onClick={() => { sound('click'); setShowDeleteModal(false); setDeleteTargetDate(null); }} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-600 font-bold py-2 rounded-xl">キャンセル</button>
+                  <button onClick={executeDeleteDay} className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-2 rounded-xl shadow-md">消す</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ✅ 旧コード機能：日付変更モーダル */}
+          {showDateEditModal && dateEditTarget && (
+            <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-sm border-4 border-orange-200 shadow-2xl animate-popIn">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xl font-bold text-orange-600 flex items-center gap-2">
+                    <CalendarDays size={18}/> 日付を変更
+                  </h3>
+                  <button onClick={() => { sound('click'); setShowDateEditModal(false); }} className="text-slate-400 hover:text-slate-600 text-2xl font-bold bg-slate-100 rounded-full w-8 h-8 flex items-center justify-center">×</button>
+                </div>
+                <div className="text-xs text-slate-500 font-bold mb-2">現在：{dateEditTarget.oldDate}</div>
+                <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 mb-4">
+                  <input
+                    type="date"
+                    value={dateEditTarget.newDate}
+                    onChange={(e) => setDateEditTarget(prev => ({ ...prev, newDate: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 font-bold text-slate-700"
+                  />
+                  <div className="text-[11px] text-orange-600 font-bold mt-2">
+                    ※ すでにある日付には変更できません（上書き防止）
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={() => { sound('click'); setShowDateEditModal(false); }} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-600 font-bold py-3 rounded-xl">キャンセル</button>
+                  <button onClick={applyDateEdit} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl shadow-lg">変更する</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ヘッダー */}
+          <header className="bg-white shadow-sm sticky top-0 z-10 border-b border-sky-100">
+            <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {activeTab !== 'home' ? (
+                  <button
+                    onClick={() => { sound('click'); setActiveTab('home'); }}
+                    className="flex items-center gap-1.5 text-sky-600 bg-sky-50 hover:bg-sky-100 px-3 py-1.5 rounded-lg font-bold transition-all active:scale-95 border border-sky-200"
+                  >
+                    <Home size={18} />
+                    <span>表紙へ</span>
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div className="bg-yellow-400 p-2 rounded-full text-white shadow-sm">
+                      <Activity size={20} strokeWidth={2.5} />
+                    </div>
+                    <div>
+                      <h1 className="text-base font-bold text-sky-600 leading-tight">なわとびマスター</h1>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="text-right">
+                <div className="text-[10px] text-slate-400 font-bold">げんざいのきゅう</div>
+                <div className="text-xl font-black text-pink-500 leading-none">
+                  {currentBestLevel ? currentBestLevel.name : '―'}
+                </div>
+              </div>
+            </div>
+          </header>
+
+          {/* メインコンテンツ */}
+          <main className="max-w-2xl mx-auto px-4 py-6 space-y-6 h-full flex flex-col justify-center min-h-[80vh]">
+
+            {/* 祝賀エフェクト（級アップ） */}
+            {showConfetti && (
+              <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fadeIn p-4">
+                <div className="bg-white p-8 rounded-3xl shadow-2xl border-4 border-yellow-400 text-center relative max-w-sm w-full animate-popIn overflow-hidden">
+                  <button onClick={() => { sound('click'); setShowConfetti(false); }} className="absolute top-3 right-3 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full p-2 z-10">
+                    <X size={24} />
+                  </button>
+                  <div className="absolute inset-0 bg-confetti opacity-30 pointer-events-none"></div>
+
+                  <Trophy size={80} className="mx-auto text-yellow-500 mb-4 drop-shadow-md relative z-10" />
+                  <h2 className="text-3xl font-black text-pink-500 mb-2 relative z-10">おめでとう！</h2>
+                  <div className="text-4xl font-black text-slate-700 mb-6 relative z-10">{currentBestLevel?.name} <span className="text-xl">合格</span></div>
+
+                  <button onClick={() => { sound('success'); setShowConfetti(false); }} className="bg-pink-500 hover:bg-pink-600 text-white font-bold py-3 px-8 rounded-xl shadow-lg transition-all active:scale-95 relative z-10">
+                    やったね！
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 表紙 */}
+            {activeTab === 'home' && (
+              <div className="space-y-4 animate-fadeIn">
+                <div className="bg-white rounded-2xl shadow-xl border-4 border-sky-100 overflow-hidden relative">
+                  <div className="bg-sky-50 p-4 text-center border-b border-sky-100 relative">
+                    {IS_TEACHER_MODE && (
+                      <div className="absolute top-3 right-3">
+                        <button onClick={() => { sound('click'); setActiveTab('settings'); }} className="flex items-center gap-1 p-1.5 text-sky-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-all text-xs font-bold" title="設定（先生用）">
+                          <Settings size={16} />
+                          <span>検定表を編集</span>
+                        </button>
+                      </div>
+                    )}
+                    <div className="inline-block bg-white p-2 rounded-full shadow-sm mb-1 text-sky-500">
+                      <School size={24} />
+                    </div>
+                    <h2 className="text-xl font-black text-slate-700 tracking-tight">なわとび検定カード</h2>
+                    <p className="text-[10px] text-slate-400 mt-0.5">全国の検定表を参照・統合した標準モデル（20級～1級）</p>
+                  </div>
+
+                  <div className="p-4">
+                    {/* プロフィール入力 */}
+                    <div className="bg-sky-50/50 p-3 rounded-lg border-2 border-sky-100 mb-4">
+                      <div className="flex items-center gap-2 text-sky-600 mb-2">
+                        <Pencil size={14} />
+                        <span className="text-xs font-bold">ここに なまえ を かいてね</span>
+                      </div>
+
+                      <div className="flex gap-2 flex-wrap">
+                        <div className="w-24">
+                          <select
+                            value={user.grade}
+                            onChange={(e) => { sound('click'); setUser(prev => ({ ...prev, grade: parseInt(e.target.value) })); }}
+                            className="w-full p-2 rounded-md border border-sky-200 bg-white text-base font-bold focus:border-sky-400 focus:outline-none select-text"
+                          >
+                            {[1,2,3,4,5,6].map(g => <option key={g} value={g}>{g} 年</option>)}
+                          </select>
+                        </div>
+                        <div className="w-16">
+                          <input
+                            type="text"
+                            value={user.classVal}
+                            onChange={(e) => setUser(prev => ({ ...prev, classVal: e.target.value }))}
+                            placeholder="組"
+                            className="w-full p-2 rounded-md border border-sky-200 bg-white text-base font-bold focus:border-sky-400 focus:outline-none text-center select-text"
+                          />
+                        </div>
+                        <div className="w-16">
+                          <input
+                            type="text"
+                            value={user.number}
+                            onChange={(e) => setUser(prev => ({ ...prev, number: e.target.value }))}
+                            placeholder="番"
+                            className="w-full p-2 rounded-md border border-sky-200 bg-white text-base font-bold focus:border-sky-400 focus:outline-none text-center select-text"
+                          />
+                        </div>
+                        <div className="flex-1 min-w-[180px]">
+                          <input
+                            type="text"
+                            value={user.name}
+                            onChange={(e) => setUser(prev => ({ ...prev, name: e.target.value }))}
+                            placeholder="なまえ"
+                            className="w-full p-2 rounded-md border border-sky-200 bg-white text-base font-bold focus:border-sky-400 focus:outline-none select-text"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3">
+                      <button
+                        onClick={() => { sound('click'); setActiveTab('input'); }}
+                        className="flex items-center gap-3 p-3 bg-blue-50 hover:bg-blue-100 border-2 border-blue-200 rounded-xl transition-all active:scale-95 group shadow-sm hover:shadow-md"
+                      >
+                        <div className="w-10 h-10 bg-blue-500 text-white rounded-full flex items-center justify-center shadow-md group-hover:scale-110 transition-transform flex-shrink-0">
+                          <RefreshCw size={20} />
+                        </div>
+                        <div className="text-left">
+                          <div className="text-lg font-black text-blue-700 leading-tight">きろく を つける</div>
+                          <div className="text-[10px] text-blue-500 font-bold">さいこう きろく に チャレンジ！</div>
+                        </div>
+                      </button>
+
+                      {/* ✅ 旧コード機能：合計と目標 */}
+                      <button
+                        onClick={() => { sound('click'); setActiveTab('stats'); }}
+                        className="flex items-center gap-3 p-3 bg-orange-50 hover:bg-orange-100 border-2 border-orange-200 rounded-xl transition-all active:scale-95 group shadow-sm hover:shadow-md"
+                      >
+                        <div className="w-10 h-10 bg-orange-500 text-white rounded-full flex items-center justify-center shadow-md group-hover:scale-110 transition-transform flex-shrink-0">
+                          <BarChart3 size={20} />
+                        </div>
+                        <div className="text-left">
+                          <div className="text-lg font-black text-orange-700 leading-tight">ごうけい と もくひょう</div>
+                          <div className="text-[10px] text-orange-600 font-bold">たっせい で つぎの もくひょう！</div>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => { sound('click'); setActiveTab('cert'); }}
+                        className="flex items-center gap-3 p-3 bg-pink-50 hover:bg-pink-100 border-2 border-pink-200 rounded-xl transition-all active:scale-95 group shadow-sm hover:shadow-md"
+                      >
+                        <div className="w-10 h-10 bg-pink-500 text-white rounded-full flex items-center justify-center shadow-md group-hover:scale-110 transition-transform flex-shrink-0">
+                          <Award size={20} />
+                        </div>
+                        <div className="text-left">
+                          <div className="text-lg font-black text-pink-700 leading-tight">にんていしょう</div>
+                          <div className="text-[10px] text-pink-500 font-bold">いまの きゅう を かくにん</div>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => { sound('click'); setActiveTab('history'); }}
+                        className="flex items-center gap-3 p-3 bg-green-50 hover:bg-green-100 border-2 border-green-200 rounded-xl transition-all active:scale-95 group shadow-sm hover:shadow-md"
+                      >
+                        <div className="w-10 h-10 bg-green-500 text-white rounded-full flex items-center justify-center shadow-md group-hover:scale-110 transition-transform flex-shrink-0">
+                          <ClipboardList size={20} />
+                        </div>
+                        <div className="text-left">
+                          <div className="text-lg font-black text-green-700 leading-tight">がんばり表</div>
+                          <div className="text-[10px] text-green-500 font-bold">れんしゅう の いちらん・コピー</div>
+                        </div>
+                      </button>
+                    </div>
+
+                    <div className="mt-4 text-center">
+                      <button
+                        onClick={handleReset}
+                        className="text-[10px] text-slate-300 hover:text-red-400 underline flex items-center justify-center gap-1 mx-auto"
+                      >
+                        <RotateCcw size={10} />
+                        データをリセットして最初から始める
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 記録入力 */}
+            {activeTab === 'input' && (
+              <div className="space-y-4 animate-fadeIn">
+                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+                  <div className="flex justify-between items-end mb-2">
+                    <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2 mb-1">
+                      <RefreshCw size={20} className="text-sky-500" />
+                      きろくをいれよう
+                    </h2>
+
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="text-[10px] text-sky-500 font-bold">きろくするひを カレンダーから えらんでね</span>
+                      <div className="flex gap-2">
+                        <div className="relative">
+                          <input
+                            type="date"
+                            value={targetDate}
+                            onChange={(e) => { sound('click'); setTargetDate(e.target.value); }}
+                            className="pl-8 pr-2 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 focus:outline-none focus:border-sky-400"
+                          />
+                          <CalendarDays className="absolute left-2 top-1.5 text-slate-400 pointer-events-none" size={14} />
+                        </div>
+
+                        <button
+                          onClick={handleCopyToClipboard}
+                          className="flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95"
+                        >
+                          <Copy size={14} />
+                          <span>コピー</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {(targetDate !== toLocalDateKey(new Date()) || Object.keys(records).length > 0) && (
+                    <div className="text-xs text-orange-500 bg-orange-50 p-2 rounded mb-2 border border-orange-200 text-center font-bold">
+                      数字をかえたらけっていボタンをおします
+                    </div>
+                  )}
+
+                  <p className="text-xs text-slate-400 mb-4 ml-7">
+                    ひっかからずに <span className="text-pink-500 font-bold">れんぞく</span> でとべた回数
+                  </p>
+
+                  <div className="space-y-3">
+                    {displayTricks.map((trick) => {
+                      const currentCount = records[trick.id] || 0;
+                      const currentCountNum = parseInt(currentCount || 0);
+
+                      const savedCount = dailyRecords[targetDate]?.[trick.id];
+                      const savedCountNum = parseInt(savedCount || 0);
+                      const isSaved = currentCountNum === savedCountNum;
+
+                      const currentMax = maxRecords[trick.id] || 0;
+                      const bestLevel = getTrickLevel(trick.id);
+
+                      return (
+                        <div key={trick.id} className={`flex items-center justify-between p-3 rounded-xl bg-white border-2 hover:border-sky-300 transition-colors ${trick.color.replace('text', 'border').split(' ')[2]}`}>
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shadow-sm ${trick.color}`}>
+                              {trick.label.substring(0, 1)}
+                            </div>
+                            <div>
+                              <div className="font-bold text-slate-700 flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <span>{trick.label}</span>
+
+                                <span className="text-xs text-orange-600 font-bold bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200">
+                                  最高:{currentMax}
+                                </span>
+
+                                {bestLevel && (
+                                  <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-0.5 rounded-full border border-yellow-300 font-black whitespace-nowrap">
+                                    {bestLevel}級
+                                  </span>
+                                )}
+
+                                {/* ✅ 旧コード機能：合計/目標（ミニ表示） */}
+                                <span className="text-[11px] text-slate-500 font-bold bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+                                  合計:{totals[trick.id] || 0}/{goals[trick.id] || defaultGoalForTrick(trick.id)}
+                                </span>
+                              </div>
+                              <div className="text-xs text-slate-400 opacity-0 h-0 overflow-hidden">{trick.label}</div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => updateRecord(trick.id, Math.max(0, (parseInt(records[trick.id] || 0) - 1)))}
+                              className="w-10 h-10 rounded-full bg-slate-50 border border-slate-200 text-slate-400 flex items-center justify-center active:scale-95 touch-manipulation hover:bg-slate-100"
+                            >
+                              <ChevronDown size={20} />
+                            </button>
+
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              pattern="\d*"
+                              className={`w-16 text-center font-black text-2xl bg-transparent border-b-2 border-slate-200 focus:border-sky-500 focus:outline-none p-1 select-text ime-active ${isSaved ? 'text-sky-600' : 'text-slate-800'}`}
+                              value={parseInt(records[trick.id] || 0) > 0 ? records[trick.id] : ''}
+                              placeholder="0"
+                              onFocus={(e) => {
+                                const target = e.target;
+                                requestAnimationFrame(() => target.select());
+                              }}
+                              onChange={(e) => updateRecord(trick.id, e.target.value)}
+                            />
+
+                            <span className="text-xs font-bold text-slate-400 mt-2 whitespace-nowrap">回</span>
+
+                            <button
+                              onClick={() => updateRecord(trick.id, (parseInt(records[trick.id] || 0) + 1))}
+                              className="w-10 h-10 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center active:scale-95 shadow-sm touch-manipulation hover:bg-sky-200"
+                            >
+                              <ChevronUp size={20} />
+                            </button>
+
+                            <button
+                              onClick={() => handleConfirmRecord(trick.id)}
+                              className={`ml-1 text-xs font-bold py-2 px-3 rounded-lg shadow-sm active:scale-95 transition-all flex flex-col items-center leading-none ${
+                                isSaved
+                                ? 'bg-sky-100 text-sky-600 border-2 border-sky-200'
+                                : 'bg-green-500 hover:bg-green-600 text-white animate-pulse'
+                              }`}
+                            >
+                              {isSaved ? (
+                                <>
+                                  <CheckCircle size={16} className="mb-0.5" />
+                                  <span>保存済</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Check size={16} className="mb-0.5" />
+                                  <span>けってい</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => { sound('click'); setActiveTab('home'); }}
+                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 mt-6 border-2 border-slate-200"
+                >
+                  <Home size={20} />
+                  表紙（ホーム）にもどる
+                </button>
+              </div>
+            )}
+
+            {/* ✅ 旧コード機能：合計と目標（stats） */}
+            {activeTab === 'stats' && (
+              <div className="space-y-4 animate-fadeIn">
+                <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <h2 className="text-lg font-black text-orange-600 flex items-center gap-2">
+                      <BarChart3 size={20} />
+                      合計と目標
+                    </h2>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => { sound('click'); setShowGoalSettings(true); }}
+                        className="bg-orange-100 hover:bg-orange-200 text-orange-700 text-xs font-bold px-3 py-2 rounded-full transition flex items-center gap-1 shadow-sm border border-orange-200"
+                      >
+                        <Settings size={14} />
+                        目標の設定
+                      </button>
+
+                      <button
+                        onClick={() => { sound('click'); setActiveTab('input'); }}
+                        className="bg-sky-100 hover:bg-sky-200 text-sky-700 text-xs font-bold px-3 py-2 rounded-full transition flex items-center gap-1 shadow-sm border border-sky-200"
+                      >
+                        <Pencil size={14}/>
+                        記録する
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] text-slate-500 font-bold mb-4 flex items-center gap-2">
+                    <Sparkles size={14} className="text-orange-500"/>
+                    合計が目標に届くと「次の目標（+20%）」が出ます。
+                  </div>
+
+                  <div className="space-y-3">
+                    {displayTricks.map(trick => {
+                      const total = totals[trick.id] || 0;
+                      const goal = goals[trick.id] || defaultGoalForTrick(trick.id);
+                      const pct = goal > 0 ? Math.min(100, Math.floor((total / goal) * 100)) : 0;
+                      const achieved = total >= goal;
+
+                      return (
+                        <div key={trick.id} className="p-4 rounded-2xl border border-slate-200 bg-white">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shadow-sm ${trick.color}`}>
+                                {trick.label.substring(0,1)}
+                              </div>
+                              <div>
+                                <div className="font-black text-slate-700">{trick.label}</div>
+                                <div className="text-xs text-slate-400 font-bold">
+                                  合計 <span className="text-slate-700">{total}</span> ／ 目標 <span className="text-slate-700">{goal}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className={`text-xs font-black px-3 py-1 rounded-full border ${achieved ? 'bg-yellow-50 text-yellow-700 border-yellow-300' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+                              {achieved ? '達成！' : `${pct}%`}
+                            </div>
+                          </div>
+
+                          <div className="mt-3">
+                            <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+                              <div className="h-full bg-orange-400" style={{ width: `${pct}%` }}></div>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 flex items-center justify-between text-xs">
+                            <button
+                              onClick={() => { sound('click'); checkAndTriggerGoalUpdate(trick.id, total); }}
+                              className="text-orange-600 font-bold underline"
+                              title="今の合計で目標チェック（手動）"
+                            >
+                              目標チェック
+                            </button>
+                            <div className="text-slate-400 font-bold flex items-center gap-1">
+                              <Volume2 size={14} />
+                              効果音：ON（端末設定でミュート可）
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* ✅ 目標設定モーダル */}
+                {showGoalSettings && (
+                  <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl p-6 w-full max-w-md border-4 border-sky-200 shadow-2xl max-h-[90vh] flex flex-col animate-popIn">
+                      <div className="flex justify-between items-center mb-3">
+                        <h3 className="text-xl font-black text-sky-600 flex items-center gap-2">
+                          <Settings size={18}/> 種目と目標の設定
+                        </h3>
+                        <button onClick={() => { sound('click'); setShowGoalSettings(false); }} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
+                      </div>
+                      <p className="text-xs text-slate-500 mb-2">目標回数を変えられます（合計に対する目標です）。</p>
+
+                      <div className="space-y-3 overflow-y-auto flex-1 pr-1">
+                        {displayTricks.map(trick => (
+                          <div key={trick.id} className="bg-sky-50 p-3 rounded-xl border border-sky-100 flex items-center justify-between gap-3">
+                            <div className="font-bold text-slate-700">{trick.label}</div>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                value={goals[trick.id] || defaultGoalForTrick(trick.id)}
+                                onChange={(e) => setGoals(prev => ({ ...prev, [trick.id]: Math.max(1, parseInt(e.target.value || 0)) }))}
+                                className="w-28 text-right font-black p-2 rounded-lg border border-sky-200 bg-white"
+                              />
+                              <span className="text-xs font-bold text-slate-500">回</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="flex gap-2 mt-4">
+                        <button onClick={() => { sound('click'); setShowGoalSettings(false); }} className="flex-1 bg-slate-200 text-slate-600 font-bold py-3 rounded-xl hover:bg-slate-300">閉じる</button>
+                        <button onClick={saveGoalSettings} className="flex-1 bg-sky-500 text-white font-bold py-3 rounded-xl hover:bg-sky-600 shadow-md">保存</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={() => { sound('click'); setActiveTab('home'); }}
+                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 mt-2 border-2 border-slate-200"
+                >
+                  <Home size={20} />
+                  表紙（ホーム）にもどる
+                </button>
+              </div>
+            )}
+
+            {/* 認定証（現コードのまま） */}
+            {activeTab === 'cert' && (
+              <div className="space-y-6 animate-fadeIn">
+
+                {user.grade <= 2 && (
+                  <div className="bg-white rounded-3xl p-6 shadow-lg border-4 border-pink-200 relative overflow-hidden text-center">
+                    <div className="absolute top-0 left-0 w-full h-4 bg-pink-200"></div>
+                    <div className="mt-4 mb-2">
+                      <div className="inline-block p-3 bg-pink-100 rounded-full text-pink-500 mb-2"><Star size={32} fill="currentColor" /></div>
+                      <h2 className="text-2xl font-black text-pink-500">にんていしょう</h2>
+                    </div>
+                    <div className="text-lg font-bold text-slate-700 mb-4">
+                      {user.grade}ねん {user.classVal}くみ {user.number}ばん<br/>
+                      <span className="text-2xl border-b-2 border-pink-300 px-2">{user.name ? user.name : '（なまえ）'}</span> さん
+                    </div>
+                    <div className="bg-pink-50 rounded-xl p-4 mb-4">
+                      <p className="text-sm text-pink-400 font-bold mb-1">あなたは</p>
+                      <p className="text-5xl font-black text-pink-600 tracking-tight my-2">
+                        {currentBestLevel ? currentBestLevel.name : 'がんばり中'}
+                      </p>
+                      <p className="text-sm text-pink-400 font-bold">にごうかくしました！</p>
+                    </div>
+                    <div className="text-xs text-slate-400 font-bold">よくがんばりました</div>
+                    <div className="absolute -bottom-6 -right-6 w-24 h-24 bg-yellow-200 rounded-full opacity-50"></div>
+                    <div className="absolute -bottom-6 -left-6 w-20 h-20 bg-blue-200 rounded-full opacity-50"></div>
+                  </div>
+                )}
+
+                {(user.grade === 3 || user.grade === 4) && (
+                  <div className="bg-white rounded-xl p-8 shadow-lg border border-sky-200 relative text-center">
+                    <div className="border-4 border-double border-sky-100 p-6 rounded-lg">
+                      <div className="mb-4">
+                        <Award size={48} className="mx-auto text-sky-500" />
+                        <h2 className="text-3xl font-serif font-black text-sky-700 mt-2">認定証</h2>
+                      </div>
+                      <div className="text-left bg-sky-50/50 p-4 rounded-lg mb-6 text-slate-700 font-serif">
+                        <p className="mb-2">第 {user.grade} 学年 {user.classVal} 組 {user.number} 番</p>
+                        <p className="text-2xl font-bold border-b border-sky-300 pb-1 mb-4 inline-block min-w-[200px] text-center">{user.name ? user.name : '（名前）'} 殿</p>
+                        <p className="leading-relaxed text-sm">
+                          あなたは、なわとび検定において<br/>
+                          頭書の成績を収められました。<br/>
+                          よってここにこれを証します。
+                        </p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-bold text-sky-500">認定級</p>
+                        <p className="text-4xl font-black text-sky-800 border-2 border-sky-600 inline-block px-8 py-2 rounded-md mt-1 bg-white">
+                          {currentBestLevel ? currentBestLevel.name : '―'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {user.grade >= 5 && (
+                  <div className="bg-slate-50 rounded-sm p-8 shadow-xl border-t-8 border-gold-500 relative text-center" style={{borderColor: '#d4af37'}}>
+                    <div className="absolute top-4 right-4 text-xs text-slate-400 font-mono">ID: {Math.random().toString(36).substr(2, 9).toUpperCase()}</div>
+                    <div className="mb-8 mt-2">
+                      <div className="text-xs tracking-[0.2em] text-slate-500 uppercase font-bold mb-1">Certificate of Achievement</div>
+                      <h2 className="text-4xl font-serif font-bold text-slate-800 border-b-2 border-slate-300 inline-block pb-2 px-4">記録証</h2>
+                    </div>
+
+                    <div className="flex justify-between items-end mb-8 px-4">
+                      <div className="text-left">
+                        <p className="text-sm text-slate-500">Name</p>
+                        <p className="text-xl font-bold text-slate-800">{user.name ? user.name : '__________'}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-slate-500">Grade</p>
+                        <p className="text-xl font-bold text-slate-800">{user.grade} - {user.classVal} - {user.number}</p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white border border-slate-200 p-8 rounded-sm shadow-inner mb-6">
+                      <p className="text-sm text-slate-500 font-serif italic mb-2">Achieved Level</p>
+                      <p className="text-5xl font-serif font-bold text-[#d4af37]" style={{textShadow: '1px 1px 0px rgba(0,0,0,0.1)'}}>
+                        {currentBestLevel ? currentBestLevel.name : 'Unranked'}
+                      </p>
+                    </div>
+
+                    <div className="text-left text-xs text-slate-400 mt-8 border-t border-slate-200 pt-2">
+                      大阪なわとび級判定基準準拠<br/>
+                      Osaka Jump Rope Assessment Standards
+                    </div>
+                  </div>
+                )}
+
+                {/* 共通: 進捗リスト（達成済みは非表示） */}
+                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+                  <h3 className="font-bold text-slate-700 mb-3 text-sm flex items-center gap-2">
+                    <Target size={18} className="text-red-500" />
+                    {goalTitle}
+                  </h3>
+                  <div className="space-y-2">
+                    {nextLevels.length > 0 ? (
+                      nextLevels.map((lvl) => (
+                        <div key={lvl.level} className="p-3 rounded-lg border border-slate-100 bg-white text-slate-500 text-xs flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span className="font-bold text-sm text-slate-400">{lvl.name}</span>
+                            <div className="flex flex-wrap gap-1">
+                              {Object.entries(lvl.reqs).map(([trickId, count]) => {
+                                const trick = displayTricks.find(t => t.id === trickId);
+                                if (!trick || !count) return null;
+                                return (
+                                  <span key={trickId} className="px-1.5 py-0.5 rounded border bg-slate-50 border-slate-200">
+                                    {trick.label}: {count}回
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center p-6 bg-yellow-50 rounded-xl border border-yellow-200">
+                        <Trophy size={40} className="mx-auto text-yellow-500 mb-2" />
+                        <div className="text-lg font-bold text-yellow-600">すべての級をクリア！</div>
+                        <div className="text-xs text-yellow-600">おめでとうございます！</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => { sound('click'); setActiveTab('home'); }}
+                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 mt-6 border-2 border-slate-200"
+                >
+                  <Home size={20} />
+                  表紙（ホーム）にもどる
+                </button>
+              </div>
+            )}
+
+            {/* がんばり表（旧コードの一覧表機能も統合） */}
+            {activeTab === 'history' && (
+              <div className="space-y-4 animate-fadeIn">
+                <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 text-center">
+                  <Calendar size={48} className="mx-auto text-green-500 mb-2" />
+                  <h2 className="text-lg font-bold text-slate-700">がんばり表</h2>
+
+                  {/* 旧コード機能：操作ボタン（コピー/復元） */}
+                  <div className="flex gap-2 justify-center mt-3 flex-wrap">
+                    <button
+                      onClick={exportAllAsTSV}
+                      className="bg-sky-100 hover:bg-sky-200 text-sky-700 font-bold px-4 py-2 rounded-full text-xs border border-sky-200 flex items-center gap-1"
+                    >
+                      <Copy size={14}/> 一覧をコピー
+                    </button>
+                    <button
+                      onClick={() => { sound('click'); setShowImportModal(true); }}
+                      className="bg-green-100 hover:bg-green-200 text-green-700 font-bold px-4 py-2 rounded-full text-xs border border-green-200 flex items-center gap-1"
+                    >
+                      <Upload size={14}/> 復元（貼り付け）
+                    </button>
+                  </div>
+
+                  {/* 連続日数表示 */}
+                  <div className="bg-orange-100 border-2 border-orange-200 rounded-xl p-4 mb-6 text-center mt-5">
+                    <div className="flex items-center justify-center gap-2 mb-1">
+                      <span className="text-2xl">🔥</span>
+                      <span className="text-lg font-black text-orange-600">れんぞく記録</span>
+                      <span className="text-2xl">🔥</span>
+                    </div>
+                    <div className="text-3xl font-black text-orange-500">
+                      {(() => {
+                        const toKey = (d) => toLocalDateKey(d);
+                        const now = new Date();
+                        let count = 0;
+                        let isTodayDone = false;
+                        const todayKey = toKey(now);
+
+                        if (history[todayKey]) {
+                          count = 1; isTodayDone = true;
+                          const d = new Date(now);
+                          while(true) {
+                            d.setDate(d.getDate() - 1);
+                            const isDone = history[toKey(d)];
+                            if (isDone) {
+                              count++;
+                            } else {
+                              const isWeH = d.getDay() === 0 || d.getDay() === 6 || isJapaneseHoliday(d);
+                              if (!isWeH) break;
+                            }
+                          }
+                        } else {
+                          const d = new Date(now); d.setDate(d.getDate() - 1);
+                          let checkDate = new Date(d);
+                          while(true) {
+                            const isDone = history[toKey(checkDate)];
+                            if (isDone) {
+                              count++;
+                            } else {
+                              const isWeH = checkDate.getDay() === 0 || checkDate.getDay() === 6 || isJapaneseHoliday(checkDate);
+                              if (!isWeH) break;
+                            }
+                            checkDate.setDate(checkDate.getDate() - 1);
+                          }
+                        }
+
+                        return (
+                          <>
+                            {count}<span className="text-base">日</span>
+                            <div className="text-xs text-orange-400 font-bold mt-1">
+                              {count > 0 ? (isTodayDone ? "すごい！ きょうも たっせい！" : "きのうまで つづいてるよ！") : "きょうから チャレンジ！"}
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* 直近14日 */}
+                  <div className="grid grid-cols-7 gap-2 max-w-sm mx-auto mt-4">
+                    {[...Array(14)].map((_, i) => {
+                      const d = new Date();
+                      d.setDate(d.getDate() - (13 - i));
+                      const dateKey = toLocalDateKey(d);
+                      const dayNum = d.getDate();
+                      const hasHistory = history[dateKey];
+                      const isToday = toLocalDateKey(new Date()) === dateKey;
+
+                      return (
+                        <div key={i} className="flex flex-col items-center gap-1">
+                          <div className="text-[10px] text-slate-400">{d.getMonth()+1}/{dayNum}</div>
+                          <div className={`
+                            w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all
+                            ${hasHistory ? 'bg-green-100 border-green-500 text-green-600 scale-110' : 'bg-slate-50 border-slate-100 text-slate-300'}
+                            ${isToday ? 'ring-2 ring-offset-2 ring-sky-300' : ''}
+                          `}>
+                            {hasHistory ? <Medal size={20} fill="currentColor" /> : <div className="w-2 h-2 rounded-full bg-slate-200" />}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* ✅ 旧コード機能：日別一覧表（横スクロール＋日付変更＋削除） */}
+                  <div className="mt-8 text-left">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="font-black text-slate-700 flex items-center gap-2">
+                        <ClipboardList size={18} className="text-green-600"/>
+                        日別きろく一覧
+                      </div>
+                      <button
+                        onClick={() => { sound('click'); setActiveTab('input'); setTargetDate(toLocalDateKey(new Date())); }}
+                        className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-4 py-2 rounded-full text-xs shadow-md border-4 border-white"
+                        title="今日の記録へ"
+                      >
+                        ✏️ きょうの記録へ
+                      </button>
+                    </div>
+
+                    <div className="bg-white rounded-xl shadow border border-slate-200 overflow-hidden">
+                      <div className="overflow-x-auto custom-scrollbar">
+                        <table className="min-w-[700px] w-full text-xs border-collapse">
+                          <thead className="sticky-header">
+                            <tr className="bg-green-50 text-green-800">
+                              <th className="sticky-corner p-2 text-center min-w-[130px] border-b border-slate-200">日付</th>
+                              {displayTricks.map(t => (
+                                <th key={t.id} className="p-2 text-center min-w-[90px] border-b border-slate-200">
+                                  {t.label}
+                                </th>
+                              ))}
+                              <th className="p-2 text-center min-w-[80px] border-b border-slate-200">合計</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sortedDates.length === 0 ? (
+                              <tr>
+                                <td colSpan={displayTricks.length + 2} className="p-4 text-center text-slate-400 font-bold">
+                                  まだ日別の記録がありません。
+                                </td>
+                              </tr>
+                            ) : (
+                              sortedDates.map(dateKey => {
+                                const dayObj = dailyRecords[dateKey] || {};
+                                const rowTotal = displayTricks.reduce((sum, t) => sum + (parseInt(dayObj[t.id] || 0) || 0), 0);
+
+                                return (
+                                  <tr key={dateKey} className="hover:bg-slate-50 border-b border-slate-100">
+                                    <td className="sticky-col p-2 bg-white border-b border-slate-100">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <button
+                                          onClick={() => openDateEdit(dateKey)}
+                                          className="text-slate-700 font-black underline decoration-dotted"
+                                          title="日付を変更"
+                                        >
+                                          {dateKey}
+                                        </button>
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            onClick={() => { sound('click'); setTargetDate(dateKey); setActiveTab('input'); }}
+                                            className="text-xs font-bold px-2 py-1 rounded-lg bg-sky-50 text-sky-700 border border-sky-200"
+                                            title="この日の入力へ"
+                                          >
+                                            編集
+                                          </button>
+                                          <button
+                                            onClick={() => openDeleteDay(dateKey)}
+                                            className="p-1.5 rounded-lg bg-red-50 text-red-600 border border-red-200 hover:bg-red-100"
+                                            title="削除"
+                                          >
+                                            <Trash2 size={14}/>
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </td>
+
+                                    {displayTricks.map(t => (
+                                      <td key={t.id} className="p-2 text-center border-b border-slate-100">
+                                        <span className={`font-black ${ (parseInt(dayObj[t.id] || 0) || 0) > 0 ? 'text-slate-700' : 'text-slate-300'}`}>
+                                          {parseInt(dayObj[t.id] || 0) || 0}
+                                        </span>
+                                      </td>
+                                    ))}
+
+                                    <td className="p-2 text-center border-b border-slate-100 font-black text-slate-700">
+                                      {rowTotal}
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+
+                          {sortedDates.length > 0 && (
+                            <tfoot>
+                              <tr className="bg-slate-50 border-t border-slate-200">
+                                <td className="sticky-col p-2 font-black text-slate-600">合計</td>
+                                {displayTricks.map(t => (
+                                  <td key={t.id} className="p-2 text-center font-black text-slate-700">
+                                    {totals[t.id] || 0}
+                                  </td>
+                                ))}
+                                <td className="p-2 text-center font-black text-slate-700">
+                                  {displayTricks.reduce((s, t) => s + (totals[t.id] || 0), 0)}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          )}
+                        </table>
+                      </div>
+                    </div>
+
+                    <p className="text-center text-xs text-slate-400 mt-2">
+                      日付を押すと日付変更 / 「編集」でその日の入力へ / 「一覧をコピー」でスプレッドシートに貼り付けできます。
+                    </p>
+                  </div>
+
+                  <div className="mt-6 bg-green-50 p-4 rounded-xl border border-green-100 text-left">
+                    <div className="flex items-center gap-3 mb-2">
+                      <User className="text-green-600" size={20}/>
+                      <span className="font-bold text-green-800">{user.name ? user.name : '名無し'} さんのきろく</span>
+                    </div>
+                    <div className="text-xs text-green-700">
+                      {user.isRegistered ? '記録中' : '未登録'}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => { sound('click'); setActiveTab('home'); }}
+                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 mt-6 border-2 border-slate-200"
+                >
+                  <Home size={20} />
+                  表紙（ホーム）にもどる
+                </button>
+              </div>
+            )}
+
+          </main>
+
+          <footer className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-sm border-t border-slate-200 py-2 text-center text-xs text-slate-400 z-50">
+            <div>全国の検定表を参照・統合した標準モデル（20級～1級）</div>
+            <div className="mt-1">©2026 Takayuki WAYAMA なわとび検定カード</div>
+          </footer>
+
+          <style>{`
+            @keyframes fadeIn {
+              from { opacity: 0; transform: translateY(10px); }
+              to { opacity: 1; transform: translateY(0); }
+            }
+            .animate-fadeIn { animation: fadeIn 0.3s ease-out forwards; }
+          `}</style>
+        </div>
+      );
+    }
+
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
