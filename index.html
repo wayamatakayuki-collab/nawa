@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>なわとび検定カード（最高版）</title>
+  <title>なわとび検定カード</title>
 
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -1395,7 +1395,7 @@ ${newScript}
       };
 
       const handleResetSettings = () => {
-        const ok = window.confirm("本当に初期設定（大阪府モデル）に戻しますか？\nカスタマイズした内容は消えてしまいます。");
+        const ok = window.confirm("本当に初期設定に戻しますか？\nカスタマイズした内容は消えてしまいます。");
         if (!ok) return;
         setLevelsData(DEFAULT_LEVELS_DATA);
         setTrickNames(DEFAULT_TRICK_NAMES);
@@ -2723,7 +2723,7 @@ const InputView = () => {
           />
 
           <footer className="hidden sm:block text-center text-xs font-bold text-slate-400 pb-24">
-            ©2026 Takayuki WAYAMA なわとび検定カード（最高版）
+            ©2026 Takayuki WAYAMA なわとび検定カード
           </footer>
         </div>
       );
