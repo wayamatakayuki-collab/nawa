@@ -1742,73 +1742,89 @@ ${newScript}
       );
 
       // =========================
-      // INPUT（★修正：矢印増減の“リロードっぽい効果”を抑止 + 小画面の最適化）
-      // =========================
-      const InputView = () => {
-        const today = todayKeyLocal();
-        const hasAny = Object.keys(records || {}).some(k => Number(records[k]||0) > 0);
+// INPUT（★修正：矢印増減の“リロードっぽい効果”を抑止 + 小画面の最適化）
+// =========================
+const InputView = () => {
+  const today = todayKeyLocal();
+  const hasAny = Object.keys(records || {}).some(k => Number(records[k]||0) > 0);
 
-        return (
-          <div className="space-y-4 animate-fadeInUp">
-            <div className="bg-white rounded-3xl p-4 shadow-sm border border-slate-100">
-              <div className="flex items-end justify-between gap-2 flex-wrap">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <RefreshCw size={20} className="text-sky-500"/>
-                    <div className="text-lg font-black text-slate-700">きろく を いれよう</div>
-                  </div>
-                  <div className="text-[11px] font-bold text-slate-400 mt-1">
-                    ひっかからずに <span className="text-pink-500 font-black">れんぞく</span> でとべた回数
-                  </div>
-                </div>
+  return (
+    <div className="space-y-4 animate-fadeInUp inputView">
+      {/* ★追加：技名の「…（・・・）」省略を解除（truncate / line-clamp を無効化） */}
+      <style>{`
+        .inputView .truncate{
+          overflow: visible !important;
+          white-space: normal !important;
+          text-overflow: clip !important;
+        }
+        .inputView .line-clamp-1,
+        .inputView .line-clamp-2,
+        .inputView .line-clamp-3{
+          -webkit-line-clamp: unset !important;
+          display: block !important;
+          overflow: visible !important;
+        }
+      `}</style>
 
-                <div className="flex items-center gap-2">
-                  <div className="relative">
-                    <input
-                      type="date"
-                      value={targetDate}
-                      onChange={(e)=> { playClick(); setTargetDate(e.target.value); }}
-                      className="pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-xs font-black text-slate-600 focus:outline-none focus:border-sky-400"
-                    />
-                    <CalendarDays size={16} className="absolute left-3 top-2.5 text-slate-400 pointer-events-none"/>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={()=>{ playClick(); setTargetDate(today); }}
-                    className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-xs active:scale-95"
-                  >
-                    今日
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCopyRowToClipboard}
-                    className="px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-black text-xs flex items-center gap-2 active:scale-95"
-                  >
-                    <Copy size={16}/> 1行コピー
-                  </button>
-                </div>
-              </div>
+      <div className="bg-white rounded-3xl p-4 shadow-sm border border-slate-100">
+        <div className="flex items-end justify-between gap-2 flex-wrap">
+          <div>
+            <div className="flex items-center gap-2">
+              <RefreshCw size={20} className="text-sky-500"/>
+              <div className="text-lg font-black text-slate-700">きろく を いれよう</div>
+            </div>
+            <div className="text-[11px] font-bold text-slate-400 mt-1">
+              ひっかからずに <span className="text-pink-500 font-black">れんぞく</span> でとべた回数
+            </div>
+          </div>
 
-              {(targetDate !== today || hasAny) && (
-                <div className="mt-3 bg-orange-50 border border-orange-200 text-orange-600 font-black text-xs text-center py-2 rounded-xl">
-                  数字をかえたら「けってい」をおしてね
-                </div>
-              )}
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <input
+                type="date"
+                value={targetDate}
+                onChange={(e)=> { playClick(); setTargetDate(e.target.value); }}
+                className="pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-xs font-black text-slate-600 focus:outline-none focus:border-sky-400"
+              />
+              <CalendarDays size={16} className="absolute left-3 top-2.5 text-slate-400 pointer-events-none"/>
+            </div>
+            <button
+              type="button"
+              onClick={()=>{ playClick(); setTargetDate(today); }}
+              className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-xs active:scale-95"
+            >
+              今日
+            </button>
+            <button
+              type="button"
+              onClick={handleCopyRowToClipboard}
+              className="px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-black text-xs flex items-center gap-2 active:scale-95"
+            >
+              <Copy size={16}/> 1行コピー
+            </button>
+          </div>
+        </div>
 
-              <div className="mt-4 space-y-3">
-                {displayTricks.map(trick => {
-                  const currentNum = Number(records[trick.id] || 0);
+        {(targetDate !== today || hasAny) && (
+          <div className="mt-3 bg-orange-50 border border-orange-200 text-orange-600 font-black text-xs text-center py-2 rounded-xl">
+            数字をかえたら「けってい」をおしてね
+          </div>
+        )}
 
-                  const savedVal = dailyRecords[targetDate]?.[trick.id];
-                  const savedExists = savedVal !== undefined && savedVal !== null && savedVal !== "";
-                  const savedNum = Number(savedVal || 0);
+        <div className="mt-4 space-y-3">
+          {displayTricks.map(trick => {
+            const currentNum = Number(records[trick.id] || 0);
 
-                  const isSaved = savedExists && (currentNum === savedNum);
+            const savedVal = dailyRecords[targetDate]?.[trick.id];
+            const savedExists = savedVal !== undefined && savedVal !== null && savedVal !== "";
+            const savedNum = Number(savedVal || 0);
 
-                  const best = Number(maxRecords[trick.id] || 0);
-                  const bestLevel = getTrickLevel(trick.id);
+            const isSaved = savedExists && (currentNum === savedNum);
 
-                  const borderClass = trick.color.split(" ").find(s => s.startsWith("border-")) || "border-slate-200";
+            const best = Number(maxRecords[trick.id] || 0);
+            const bestLevel = getTrickLevel(trick.id);
+
+            const borderClass = trick.color.split(" ").find(s => s.startsWith("border-")) || "border-slate-200";
 
                   return (
                     <div key={trick.id} className={`p-2.5 sm:p-3 rounded-2xl border-2 ${borderClass} bg-white hover:border-sky-300 transition`}>
